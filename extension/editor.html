@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>MarkdownTrellis Clip</title>
+  <link rel="icon" href="icons/icon-32.png">
+  <link rel="stylesheet" href="editor.css">
+  <script type="module" src="editor.js"></script>
+</head>
+<body>
+  <header class="appbar">
+    <div class="brand">
+      <img src="icons/icon-32.png" alt="" width="20" height="20">
+      <span>MarkdownTrellis Clip</span>
+    </div>
+    <span class="privacy" data-i18n="notSaved" data-i18n-title="notSavedDetail"></span>
+    <div class="actions" role="toolbar" data-i18n-aria="appName">
+      <button type="button" id="toggleSource" class="toggle" aria-pressed="true" aria-controls="sourcePane" data-i18n="toggleSource" data-i18n-title="toggleSourceTitle"></button>
+      <span class="sep" aria-hidden="true"></span>
+      <button type="button" id="copyMarkdown" data-i18n="copyMarkdown" data-i18n-title="copyMarkdownTitle"></button>
+      <button type="button" id="copyRich" class="primary" data-i18n="copyRich" data-i18n-title="copyRichTitle"></button>
+      <button type="button" id="copySelection" data-i18n="copySelection" data-i18n-title="copySelectionTitle"></button>
+      <span class="sep" aria-hidden="true"></span>
+      <button type="button" id="download" data-i18n="download" data-i18n-title="downloadTitle"></button>
+      <button type="button" id="clear" data-i18n="clear" data-i18n-title="clearTitle"></button>
+      <div class="menu-wrap">
+        <button type="button" id="settingsMenuButton" class="menu-button icon-button" aria-haspopup="menu" aria-expanded="false" aria-controls="settingsMenu" data-i18n-title="settingsMenu" data-i18n-aria="settingsMenu">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.9 1.5h2.2l.4 1.8 1.2.5 1.6-1 1.5 1.5-1 1.6.5 1.2 1.8.4v2.2l-1.8.4-.5 1.2 1 1.6-1.5 1.5-1.6-1-1.2.5-.4 1.8H6.9l-.4-1.8-1.2-.5-1.6 1-1.5-1.5 1-1.6-.5-1.2-1.8-.4V6.9l1.8-.4.5-1.2-1-1.6 1.5-1.5 1.6 1 1.2-.5z"/><circle cx="8" cy="8" r="2"/></svg>
+          <span aria-hidden="true">▾</span>
+        </button>
+        <div id="settingsMenu" class="menu menu-right" role="menu" hidden>
+          <button type="button" role="menuitem" id="openSyntax" data-i18n="syntaxMenu"></button>
+          <button type="button" role="menuitem" id="about" data-i18n="aboutButton"></button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main id="workspace" class="workspace source-open is-empty">
+    <section id="sourcePane" class="pane source-pane" data-i18n-aria="sourceLabel">
+      <div class="format-bar" role="toolbar" data-i18n-aria="formatToolbar">
+        <div class="menu-wrap">
+          <button type="button" class="menu-button text-icon" aria-haspopup="menu" aria-expanded="false" aria-controls="headingMenu" data-i18n-title="fmtHeading"><span data-i18n="fmtHeadingShort"></span> <span aria-hidden="true">▾</span></button>
+          <div id="headingMenu" class="menu" role="menu" hidden>
+            <button type="button" role="menuitem" data-format="h1" class="h1" data-i18n="fmtH1"></button>
+            <button type="button" role="menuitem" data-format="h2" class="h2" data-i18n="fmtH2"></button>
+            <button type="button" role="menuitem" data-format="h3" class="h3" data-i18n="fmtH3"></button>
+          </div>
+        </div>
+        <button type="button" data-format="bold" data-i18n-title="fmtBold" data-i18n-aria="fmtBold" class="text-icon bold">B</button>
+        <button type="button" data-format="bullet" data-i18n-title="fmtBullet" data-i18n-aria="fmtBullet"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4h8M6 8h8M6 12h8"/><circle cx="2.8" cy="4" r=".9" class="dot"/><circle cx="2.8" cy="8" r=".9" class="dot"/><circle cx="2.8" cy="12" r=".9" class="dot"/></svg></button>
+        <button type="button" data-format="ordered" data-i18n-title="fmtOrdered" data-i18n-aria="fmtOrdered"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 4H14M6.5 8H14M6.5 12H14M2.3 2.8 3.2 2.3v3.2M2 10.6c.3-.6 1.7-.7 1.7.2 0 .7-1.7 1.2-1.7 2.1h1.8"/></svg></button>
+        <button type="button" data-format="task" data-i18n-title="fmtTask" data-i18n-aria="fmtTask"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.8" y="2.5" width="4" height="4" rx=".6"/><path d="M8 4.5h6M8 11.5h6M2.6 11.3l1 1 1.7-2"/><rect x="1.8" y="9.5" width="4" height="4" rx=".6"/></svg></button>
+        <button type="button" data-format="link" data-i18n-title="fmtLink" data-i18n-aria="fmtLink"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M7 9a2.8 2.8 0 0 0 4 0l2.2-2.2a2.8 2.8 0 0 0-4-4L8.4 3.6M9 7a2.8 2.8 0 0 0-4 0L2.8 9.2a2.8 2.8 0 0 0 4 4l.8-.8"/></svg></button>
+        <button type="button" data-format="table" data-i18n-title="fmtTable" data-i18n-aria="fmtTable"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="1"/><path d="M2 6.5h12M2 9.8h12M8 3v10"/></svg></button>
+        <button type="button" data-format="code" data-i18n-title="fmtCode" data-i18n-aria="fmtCode"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 4 2 8l3.5 4M10.5 4 14 8l-3.5 4"/></svg></button>
+        <button type="button" data-format="codeblock" data-i18n-title="fmtCodeBlock" data-i18n-aria="fmtCodeBlock"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.8" y="2.5" width="12.4" height="11" rx="1.2"/><path d="M6 6.3 4.3 8 6 9.7M10 6.3 11.7 8 10 9.7"/></svg></button>
+        <div class="menu-wrap">
+          <button type="button" class="menu-button" aria-haspopup="menu" aria-expanded="false" aria-controls="moreMenu" data-i18n-title="fmtMoreTitle"><span data-i18n="fmtMore"></span> <span aria-hidden="true">▾</span></button>
+          <div id="moreMenu" class="menu" role="menu" hidden>
+            <button type="button" role="menuitem" data-format="italic" data-i18n="fmtItalic"></button>
+            <button type="button" role="menuitem" data-format="strike" data-i18n="fmtStrike"></button>
+            <button type="button" role="menuitem" data-format="quote" data-i18n="fmtQuote"></button>
+            <button type="button" role="menuitem" data-format="image" data-i18n="fmtImage"></button>
+            <button type="button" role="menuitem" data-format="hr" data-i18n="fmtHr"></button>
+          </div>
+        </div>
+      </div>
+      <textarea id="source" class="source" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" wrap="soft" data-i18n-placeholder="sourcePlaceholder" data-i18n-aria="sourceLabel"></textarea>
+    </section>
+
+    <section class="pane preview-pane" data-i18n-aria="previewLabel">
+      <div id="fenceBanner" class="banner" hidden>
+        <span id="fenceMessage"></span>
+        <button type="button" id="toggleFence"></button>
+      </div>
+      <div id="syntaxBanner" class="banner" hidden>
+        <span id="syntaxMessage"></span>
+        <button type="button" id="syntaxFromBanner" data-i18n="syntaxMenu"></button>
+      </div>
+      <div id="previewStatus" class="banner status" hidden>
+        <span id="previewStatusText"></span>
+        <button type="button" id="refreshPreview" data-i18n="refresh" hidden></button>
+      </div>
+      <div id="previewScroller" class="preview-scroller" tabindex="0" data-i18n-aria="previewLabel">
+        <div id="emptyHint" class="empty-hint">
+          <p class="empty-title" data-i18n="previewEmpty"></p>
+          <p class="empty-sub" data-i18n="previewEmptySub"></p>
+        </div>
+        <article id="preview" class="markdown-body"></article>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <dialog id="clearDialog" class="dialog" aria-labelledby="clearDialogTitle">
+    <form method="dialog">
+      <h2 id="clearDialogTitle" data-i18n="clearConfirmTitle"></h2>
+      <p data-i18n="clearConfirmBody"></p>
+      <div class="dialog-actions">
+        <button type="submit" value="cancel" data-i18n="cancel" autofocus></button>
+        <button type="submit" value="clear" class="danger" data-i18n="clearConfirm"></button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="syntaxDialog" class="dialog syntax-dialog" aria-labelledby="syntaxDialogTitle">
+    <form method="dialog">
+      <h2 id="syntaxDialogTitle" data-i18n="syntaxTitle"></h2>
+      <p class="dialog-note" data-i18n="syntaxIntro"></p>
+      <div class="syntax-list">
+        <label><input type="checkbox" name="feature" value="alerts"><span><b data-i18n="featureAlerts"></b><small data-i18n="featureAlertsHelp"></small></span></label>
+        <label><input type="checkbox" name="feature" value="footnotes"><span><b data-i18n="featureFootnotes"></b><small data-i18n="featureFootnotesHelp"></small></span></label>
+        <label><input type="checkbox" name="feature" value="math"><span><b data-i18n="featureMath" data-i18n-args='["$$"]'></b><small data-i18n="featureMathHelp" data-i18n-args='["$x^2$", "$$…$$"]'></small></span></label>
+        <label><input type="checkbox" name="feature" value="containers"><span><b data-i18n="featureContainers"></b><small data-i18n="featureContainersHelp"></small></span></label>
+        <label><input type="checkbox" name="feature" value="highlight"><span><b data-i18n="featureHighlight"></b><small data-i18n="featureHighlightHelp"></small></span></label>
+        <label><input type="checkbox" name="feature" value="wikilinks"><span><b data-i18n="featureWikiLinks"></b><small data-i18n="featureWikiLinksHelp"></small></span></label>
+        <label><input type="checkbox" name="feature" value="deflists"><span><b data-i18n="featureDefinitionLists"></b><small data-i18n="featureDefinitionListsHelp"></small></span></label>
+      </div>
+      <label class="save-default"><input type="checkbox" id="saveDefault"><span data-i18n="saveDefault"></span></label>
+      <div class="dialog-actions">
+        <button type="submit" value="ok" class="primary" data-i18n="ok"></button>
+        <button type="button" id="presetGitHub" data-i18n="presetGitHub"></button>
+        <button type="button" id="clearFeatures" data-i18n="clearFeatures"></button>
+        <button type="submit" value="cancel" data-i18n="cancel"></button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="aboutDialog" class="dialog" aria-labelledby="aboutDialogTitle">
+    <form method="dialog">
+      <h2 id="aboutDialogTitle">MarkdownTrellis Clip</h2>
+      <p class="about-description" data-i18n="appDescription"></p>
+      <p id="aboutVersion"></p>
+      <p>© ja1bus</p>
+      <p class="about-license"><span data-i18n="licenseMit"></span>
+        <a href="https://github.com/ja1bus/MarkdownTrellisClip" target="_blank" rel="noopener" data-i18n="sourceCode"></a>
+        <a href="LICENSE.txt" target="_blank" rel="noopener" data-i18n="licenseText"></a></p>
+      <p class="about-privacy" data-i18n="aboutPrivacy"></p>
+      <h3 data-i18n="thirdParty"></h3>
+      <ul class="about-licenses">
+        <li>marked 18.1.3 — MIT License</li>
+        <li>DOMPurify 3.4.17 — Apache License 2.0 / Mozilla Public License 2.0</li>
+      </ul>
+      <p><a href="licenses/THIRD_PARTY_NOTICES.txt" target="_blank" rel="noopener" data-i18n="licenseLink"></a></p>
+      <div class="dialog-actions">
+        <button type="submit" value="close" data-i18n="close" autofocus></button>
+      </div>
+    </form>
+  </dialog>
+</body>
+</html>

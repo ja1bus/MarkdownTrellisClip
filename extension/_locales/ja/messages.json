@@ -1,0 +1,329 @@
+{
+  "appName": {
+    "message": "MarkdownTrellis Clip"
+  },
+  "appDescription": {
+    "message": "Markdownを貼って、整えて、コピー。"
+  },
+  "actionTitle": {
+    "message": "MarkdownTrellis Clip を開く"
+  },
+  "toggleSource": {
+    "message": "原文"
+  },
+  "toggleSourceTitle": {
+    "message": "Markdown原文の表示・非表示"
+  },
+  "copyMarkdown": {
+    "message": "Markdownをコピー"
+  },
+  "copyMarkdownTitle": {
+    "message": "原文をそのままテキストでコピー"
+  },
+  "copyRich": {
+    "message": "書式付きコピー"
+  },
+  "copyRichTitle": {
+    "message": "プレビューの書式のままコピー（Teams・メールなどに貼り付け）"
+  },
+  "copySelection": {
+    "message": "選択範囲を書式付きコピー"
+  },
+  "copySelectionTitle": {
+    "message": "原文で選択した範囲だけを書式付きでコピー"
+  },
+  "download": {
+    "message": "ダウンロード"
+  },
+  "downloadTitle": {
+    "message": "原文を .md ファイルとしてダウンロード（ファイルはPCに残ります）"
+  },
+  "clear": {
+    "message": "クリア"
+  },
+  "clearTitle": {
+    "message": "入力内容と元に戻す履歴を消去"
+  },
+  "aboutButton": {
+    "message": "アプリ情報"
+  },
+  "notSaved": {
+    "message": "内容は保存されません"
+  },
+  "notSavedDetail": {
+    "message": "このタブを閉じたり再読み込みしたりすると、入力内容は消えます。ダウンロードしたファイルだけがPCに残ります。"
+  },
+  "formatToolbar": {
+    "message": "書式"
+  },
+  "fmtH1": {
+    "message": "見出し1"
+  },
+  "fmtH2": {
+    "message": "見出し2"
+  },
+  "fmtH3": {
+    "message": "見出し3"
+  },
+  "fmtBold": {
+    "message": "太字 (Ctrl+B)"
+  },
+  "fmtBullet": {
+    "message": "箇条書き"
+  },
+  "fmtOrdered": {
+    "message": "番号付きリスト"
+  },
+  "fmtTask": {
+    "message": "チェックリスト"
+  },
+  "fmtLink": {
+    "message": "リンク"
+  },
+  "fmtTable": {
+    "message": "表"
+  },
+  "fmtCode": {
+    "message": "インラインコード"
+  },
+  "fmtCodeBlock": {
+    "message": "コードブロック"
+  },
+  "sourceLabel": {
+    "message": "Markdown原文"
+  },
+  "sourcePlaceholder": {
+    "message": "ここにMarkdownを貼り付け（Ctrl+V）、または入力"
+  },
+  "previewLabel": {
+    "message": "プレビュー"
+  },
+  "previewEmpty": {
+    "message": "Ctrl+V で Markdown を貼り付けてください"
+  },
+  "previewEmptySub": {
+    "message": "AIの回答などからコピーしたMarkdownを確認し、必要なら直して、書式付きでコピーできます。"
+  },
+  "fenceDetected": {
+    "message": "全文がMarkdownのコードフェンスで囲まれています。"
+  },
+  "fenceApplied": {
+    "message": "外側のフェンスを除いて表示しています（原文は変更していません）。"
+  },
+  "fenceUnwrap": {
+    "message": "プレビューで外側を除外"
+  },
+  "fenceRestore": {
+    "message": "除外をやめる"
+  },
+  "manualLarge": {
+    "message": "文書が大きいため、自動更新を止めています（$1文字）。"
+  },
+  "manualSlow": {
+    "message": "変換に時間がかかるため、自動更新を止めています。"
+  },
+  "refresh": {
+    "message": "プレビューを更新"
+  },
+  "renderFailed": {
+    "message": "プレビューを作成できませんでした。原文はそのまま残っています。"
+  },
+  "removedHtml": {
+    "message": "許可されていないHTMLを$1件除外して表示しています。"
+  },
+  "imagesReplaced": {
+    "message": "画像$1件は読み込まず、代替テキストで表示しています。"
+  },
+  "imageLabel": {
+    "message": "画像"
+  },
+  "copiedMarkdown": {
+    "message": "Markdownをコピーしました"
+  },
+  "copiedRich": {
+    "message": "書式付きでコピーしました"
+  },
+  "copiedSelection": {
+    "message": "選択範囲を書式付きでコピーしました"
+  },
+  "copiedImages": {
+    "message": "画像$1件は代替テキストに置き換えました。"
+  },
+  "copyFailed": {
+    "message": "コピーできませんでした。内容はそのまま残っています。もう一度お試しください。"
+  },
+  "nothingToCopy": {
+    "message": "コピーする内容がありません"
+  },
+  "selectionRequired": {
+    "message": "原文で範囲を選択してから押してください"
+  },
+  "selectionNeedsSource": {
+    "message": "原文を表示し、範囲を選択してから押してください"
+  },
+  "downloaded": {
+    "message": "ダウンロードしました。ファイルはPCに保存されます。"
+  },
+  "nothingToDownload": {
+    "message": "ダウンロードする内容がありません"
+  },
+  "clearConfirmTitle": {
+    "message": "入力内容をすべて消去しますか？"
+  },
+  "clearConfirmBody": {
+    "message": "原文、プレビュー、元に戻す履歴を消去します。消去した内容は戻せません。"
+  },
+  "clearConfirm": {
+    "message": "消去"
+  },
+  "cancel": {
+    "message": "キャンセル"
+  },
+  "cleared": {
+    "message": "消去しました"
+  },
+  "versionLabel": {
+    "message": "バージョン $1"
+  },
+  "aboutPrivacy": {
+    "message": "入力した本文はこのタブの中だけで扱い、保存も外部への送信もしません。保存するのは追加構文の既定値（オン・オフ）だけです。"
+  },
+  "thirdParty": {
+    "message": "第三者ライブラリ"
+  },
+  "licenseLink": {
+    "message": "ライセンス表記を開く"
+  },
+  "close": {
+    "message": "閉じる"
+  },
+  "tableHeader1": {
+    "message": "列1"
+  },
+  "tableHeader2": {
+    "message": "列2"
+  },
+  "messageWithNote": {
+    "message": "$1。$2"
+  },
+  "fmtHeading": {
+    "message": "見出し（見出し1〜3）"
+  },
+  "fmtHeadingShort": {
+    "message": "見出し"
+  },
+  "fmtMore": {
+    "message": "その他"
+  },
+  "fmtMoreTitle": {
+    "message": "その他の書式（斜体・取り消し線・引用・画像・水平線）"
+  },
+  "fmtItalic": {
+    "message": "斜体"
+  },
+  "fmtStrike": {
+    "message": "取り消し線"
+  },
+  "fmtQuote": {
+    "message": "引用"
+  },
+  "fmtImage": {
+    "message": "画像"
+  },
+  "fmtHr": {
+    "message": "水平線"
+  },
+  "settingsMenu": {
+    "message": "設定"
+  },
+  "syntaxMenu": {
+    "message": "追加構文…"
+  },
+  "syntaxTitle": {
+    "message": "追加構文"
+  },
+  "syntaxIntro": {
+    "message": "チェックした構文を、このタブのプレビューと書式付きコピーで解釈します。原文は変更しません。"
+  },
+  "featureAlerts": {
+    "message": "アラート [!NOTE]"
+  },
+  "featureFootnotes": {
+    "message": "脚注 [^1]"
+  },
+  "featureMath": {
+    "message": "数式 $1（文字のまま表示）"
+  },
+  "featureContainers": {
+    "message": "コンテナ :::"
+  },
+  "featureHighlight": {
+    "message": "ハイライト ==text=="
+  },
+  "featureWikiLinks": {
+    "message": "Wikiリンク [[link]]"
+  },
+  "featureDefinitionLists": {
+    "message": "定義リスト"
+  },
+  "featureAlertsHelp": {
+    "message": "引用の先頭に > [!NOTE] と書くと、注意書きの枠で表示します。"
+  },
+  "featureFootnotesHelp": {
+    "message": "本文[^1] と [^1]: 注 で、注を末尾にまとめて表示します。"
+  },
+  "featureMathHelp": {
+    "message": "$1 や $2 を他の書式と区別し、文字のまま表示します。数式は描画しません。"
+  },
+  "featureContainersHelp": {
+    "message": "::: note と ::: で囲んだ部分を枠で表示します。"
+  },
+  "featureHighlightHelp": {
+    "message": "==文字== を蛍光ペンのように強調します。"
+  },
+  "featureWikiLinksHelp": {
+    "message": "[[ページ]] や [[ページ|表示名]] をリンクの見た目で表示します（ブラウザーからはファイルを開けないため、クリックしても開きません）。"
+  },
+  "featureDefinitionListsHelp": {
+    "message": "用語の次の行を : 説明 で始めると、用語と説明を対で表示します。"
+  },
+  "saveDefault": {
+    "message": "今後開くタブの既定値として保存"
+  },
+  "ok": {
+    "message": "OK"
+  },
+  "presetGitHub": {
+    "message": "GitHub互換"
+  },
+  "clearFeatures": {
+    "message": "すべてクリア"
+  },
+  "syntaxDetected": {
+    "message": "追加構文の可能性: $1"
+  },
+  "featureCount": {
+    "message": "$1 $2件"
+  },
+  "listSeparator": {
+    "message": "、"
+  },
+  "syntaxSaved": {
+    "message": "追加構文の既定値を保存しました"
+  },
+  "syntaxSaveFailed": {
+    "message": "既定値を保存できませんでした。このタブには反映しています。"
+  },
+  "selectionOutside": {
+    "message": "範囲外にあるリンクや脚注の定義は反映されません。"
+  },
+  "licenseMit": {
+    "message": "このアプリは MIT License で公開しています。"
+  },
+  "sourceCode": {
+    "message": "ソースコード（GitHub）"
+  },
+  "licenseText": {
+    "message": "ライセンス全文"
+  }
+}

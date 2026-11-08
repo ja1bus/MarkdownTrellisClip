@@ -1,0 +1,29 @@
+MarkdownTrellis Clip - Third-party notices / 第三者ライブラリの表記
+=================================================================
+
+MarkdownTrellis Clip © ja1bus
+
+This extension includes the following third-party software, unmodified
+except that the trailing source map reference line was removed.
+この拡張には次の第三者ソフトウェアを同梱しています（末尾のソースマップ参照行を除き無改変）。
+
+-----------------------------------------------------------------
+marked 18.1.3
+  File: vendor/marked.esm.js
+  https://github.com/markedjs/marked
+  License: MIT License
+  Copyright (c) 2018+, MarkedJS (https://github.com/markedjs/)
+  Copyright (c) 2011-2018, Christopher Jeffrey (https://github.com/chjj/)
+  The license file also contains the original Markdown notice
+  (Copyright © 2004, John Gruber; BSD-style).
+  Full text: marked-LICENSE.txt
+
+-----------------------------------------------------------------
+DOMPurify 3.4.17
+  File: vendor/purify.es.mjs
+  https://github.com/cure53/DOMPurify
+  License: dual-licensed under the Apache License 2.0 and the
+  Mozilla Public License 2.0. This extension uses it under the
+  Apache License 2.0.
+  Copyright (c) Cure53 and other contributors
+  Full text: dompurify-LICENSE.txt

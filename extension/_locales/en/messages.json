@@ -1,0 +1,329 @@
+{
+  "appName": {
+    "message": "MarkdownTrellis Clip"
+  },
+  "appDescription": {
+    "message": "Paste Markdown, tidy it up, and copy it."
+  },
+  "actionTitle": {
+    "message": "Open MarkdownTrellis Clip"
+  },
+  "toggleSource": {
+    "message": "Source"
+  },
+  "toggleSourceTitle": {
+    "message": "Show or hide the Markdown source"
+  },
+  "copyMarkdown": {
+    "message": "Copy Markdown"
+  },
+  "copyMarkdownTitle": {
+    "message": "Copy the source text exactly as it is"
+  },
+  "copyRich": {
+    "message": "Copy Formatted"
+  },
+  "copyRichTitle": {
+    "message": "Copy with formatting, for pasting into Teams, email, and similar apps"
+  },
+  "copySelection": {
+    "message": "Copy Selection Formatted"
+  },
+  "copySelectionTitle": {
+    "message": "Copy only the range selected in the source, with formatting"
+  },
+  "download": {
+    "message": "Download"
+  },
+  "downloadTitle": {
+    "message": "Download the source as an .md file (the file stays on your PC)"
+  },
+  "clear": {
+    "message": "Clear"
+  },
+  "clearTitle": {
+    "message": "Erase the content and the undo history"
+  },
+  "aboutButton": {
+    "message": "About"
+  },
+  "notSaved": {
+    "message": "Content is not saved"
+  },
+  "notSavedDetail": {
+    "message": "Closing or reloading this tab discards what you entered. Only files you download stay on your PC."
+  },
+  "formatToolbar": {
+    "message": "Formatting"
+  },
+  "fmtH1": {
+    "message": "Heading 1"
+  },
+  "fmtH2": {
+    "message": "Heading 2"
+  },
+  "fmtH3": {
+    "message": "Heading 3"
+  },
+  "fmtBold": {
+    "message": "Bold (Ctrl+B)"
+  },
+  "fmtBullet": {
+    "message": "Bulleted list"
+  },
+  "fmtOrdered": {
+    "message": "Numbered list"
+  },
+  "fmtTask": {
+    "message": "Checklist"
+  },
+  "fmtLink": {
+    "message": "Link"
+  },
+  "fmtTable": {
+    "message": "Table"
+  },
+  "fmtCode": {
+    "message": "Inline code"
+  },
+  "fmtCodeBlock": {
+    "message": "Code block"
+  },
+  "sourceLabel": {
+    "message": "Markdown source"
+  },
+  "sourcePlaceholder": {
+    "message": "Paste Markdown here (Ctrl+V), or type"
+  },
+  "previewLabel": {
+    "message": "Preview"
+  },
+  "previewEmpty": {
+    "message": "Press Ctrl+V to paste Markdown"
+  },
+  "previewEmptySub": {
+    "message": "Check Markdown copied from an AI answer or elsewhere, fix it if needed, and copy it with formatting."
+  },
+  "fenceDetected": {
+    "message": "The whole text is wrapped in a Markdown code fence."
+  },
+  "fenceApplied": {
+    "message": "Showing the content without the outer fence (the source is unchanged)."
+  },
+  "fenceUnwrap": {
+    "message": "Hide outer fence in preview"
+  },
+  "fenceRestore": {
+    "message": "Show outer fence"
+  },
+  "manualLarge": {
+    "message": "Automatic updates are paused because the text is large ($1 characters)."
+  },
+  "manualSlow": {
+    "message": "Automatic updates are paused because conversion is slow."
+  },
+  "refresh": {
+    "message": "Update preview"
+  },
+  "renderFailed": {
+    "message": "The preview could not be created. Your source is still intact."
+  },
+  "removedHtml": {
+    "message": "$1 disallowed HTML element(s) are not shown."
+  },
+  "imagesReplaced": {
+    "message": "$1 image(s) are not loaded and are shown as alternative text."
+  },
+  "imageLabel": {
+    "message": "Image"
+  },
+  "copiedMarkdown": {
+    "message": "Markdown copied"
+  },
+  "copiedRich": {
+    "message": "Copied with formatting"
+  },
+  "copiedSelection": {
+    "message": "Selection copied with formatting"
+  },
+  "copiedImages": {
+    "message": "$1 image(s) were replaced with alternative text."
+  },
+  "copyFailed": {
+    "message": "Could not copy. Your content is unchanged. Please try again."
+  },
+  "nothingToCopy": {
+    "message": "There is nothing to copy"
+  },
+  "selectionRequired": {
+    "message": "Select a range in the source first"
+  },
+  "selectionNeedsSource": {
+    "message": "Show the source and select a range first"
+  },
+  "downloaded": {
+    "message": "Downloaded. The file is saved on your PC."
+  },
+  "nothingToDownload": {
+    "message": "There is nothing to download"
+  },
+  "clearConfirmTitle": {
+    "message": "Erase all content?"
+  },
+  "clearConfirmBody": {
+    "message": "This erases the source, the preview, and the undo history. It cannot be undone."
+  },
+  "clearConfirm": {
+    "message": "Erase"
+  },
+  "cancel": {
+    "message": "Cancel"
+  },
+  "cleared": {
+    "message": "Erased"
+  },
+  "versionLabel": {
+    "message": "Version $1"
+  },
+  "aboutPrivacy": {
+    "message": "Text you enter is handled only inside this tab. It is never saved or sent anywhere. Only the default on/off state of extra syntax is saved."
+  },
+  "thirdParty": {
+    "message": "Third-party libraries"
+  },
+  "licenseLink": {
+    "message": "Open license notices"
+  },
+  "close": {
+    "message": "Close"
+  },
+  "tableHeader1": {
+    "message": "Column 1"
+  },
+  "tableHeader2": {
+    "message": "Column 2"
+  },
+  "messageWithNote": {
+    "message": "$1. $2"
+  },
+  "fmtHeading": {
+    "message": "Heading (levels 1–3)"
+  },
+  "fmtHeadingShort": {
+    "message": "Heading"
+  },
+  "fmtMore": {
+    "message": "More"
+  },
+  "fmtMoreTitle": {
+    "message": "More formatting (italic, strikethrough, quote, image, horizontal rule)"
+  },
+  "fmtItalic": {
+    "message": "Italic"
+  },
+  "fmtStrike": {
+    "message": "Strikethrough"
+  },
+  "fmtQuote": {
+    "message": "Quote"
+  },
+  "fmtImage": {
+    "message": "Image"
+  },
+  "fmtHr": {
+    "message": "Horizontal rule"
+  },
+  "settingsMenu": {
+    "message": "Settings"
+  },
+  "syntaxMenu": {
+    "message": "Extra syntax…"
+  },
+  "syntaxTitle": {
+    "message": "Extra syntax"
+  },
+  "syntaxIntro": {
+    "message": "Checked syntax is interpreted in this tab's preview and formatted copy. The source is not changed."
+  },
+  "featureAlerts": {
+    "message": "Alerts [!NOTE]"
+  },
+  "featureFootnotes": {
+    "message": "Footnotes [^1]"
+  },
+  "featureMath": {
+    "message": "Math $1 (as text)"
+  },
+  "featureContainers": {
+    "message": "Containers :::"
+  },
+  "featureHighlight": {
+    "message": "Highlight ==text=="
+  },
+  "featureWikiLinks": {
+    "message": "Wiki links [[link]]"
+  },
+  "featureDefinitionLists": {
+    "message": "Definition lists"
+  },
+  "featureAlertsHelp": {
+    "message": "> [!NOTE] at the top of a quote shows it as a note box."
+  },
+  "featureFootnotesHelp": {
+    "message": "Text[^1] and [^1]: note collect notes at the end."
+  },
+  "featureMathHelp": {
+    "message": "$1 and $2 are kept apart from other syntax and shown as text. Formulas are not drawn."
+  },
+  "featureContainersHelp": {
+    "message": "Text between ::: note and ::: is shown in a box."
+  },
+  "featureHighlightHelp": {
+    "message": "==text== is shown highlighted."
+  },
+  "featureWikiLinksHelp": {
+    "message": "[[page]] and [[page|label]] are shown as links (they do not open, because the browser cannot open your files)."
+  },
+  "featureDefinitionListsHelp": {
+    "message": "A term followed by a line starting with : shows a term and its description."
+  },
+  "saveDefault": {
+    "message": "Save as the default for new tabs"
+  },
+  "ok": {
+    "message": "OK"
+  },
+  "presetGitHub": {
+    "message": "GitHub compatible"
+  },
+  "clearFeatures": {
+    "message": "Clear all"
+  },
+  "syntaxDetected": {
+    "message": "Possible extra syntax: $1"
+  },
+  "featureCount": {
+    "message": "$1 ($2)"
+  },
+  "listSeparator": {
+    "message": ", "
+  },
+  "syntaxSaved": {
+    "message": "Saved as the default for new tabs"
+  },
+  "syntaxSaveFailed": {
+    "message": "Could not save the default. It is applied to this tab."
+  },
+  "selectionOutside": {
+    "message": "Link or footnote definitions outside the selection are not included."
+  },
+  "licenseMit": {
+    "message": "This app is released under the MIT License."
+  },
+  "sourceCode": {
+    "message": "Source code (GitHub)"
+  },
+  "licenseText": {
+    "message": "License text"
+  }
+}

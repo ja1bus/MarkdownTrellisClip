@@ -1,0 +1,23 @@
+# Packaged extension and build output
+*.zip
+*.crx
+*.pem
+store/
+
+# Node.js (development tools and tests only)
+node_modules/
+
+# IDE / user-specific files
+.vs/
+.vscode/
+.idea/
+
+# Secrets (never commit)
+*.key
+.env
+.env.*
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store

@@ -1,0 +1,718 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f6f7f8;
+  --surface: #ffffff;
+  --text: #1f2328;
+  --muted: #59636e;
+  --border: #d1d9e0;
+  --accent: #0b6b62;
+  --accent-text: #ffffff;
+  --accent-soft: #e3f2ef;
+  --hover: #eef1f3;
+  --focus: #0969da;
+  --danger: #b42318;
+  --code-bg: #f2f4f6;
+  --banner: #fff8e6;
+  --banner-border: #e8d38f;
+  --placeholder: #8c959f;
+  font-family: "Segoe UI", "Yu Gothic UI", "Meiryo UI", system-ui, sans-serif;
+  font-size: 14px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15181c;
+    --surface: #1d2126;
+    --text: #e6e8eb;
+    --muted: #9aa4af;
+    --border: #3a414a;
+    --accent: #3fb8a8;
+    --accent-text: #0b1513;
+    --accent-soft: #1f3532;
+    --hover: #272c33;
+    --focus: #6cb6ff;
+    --danger: #ff7b72;
+    --code-bg: #262b31;
+    --banner: #2f2a1c;
+    --banner-border: #6b5a2a;
+    --placeholder: #7d8590;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  /* Chrome は拡張ページの body に独自のフォント（Meiryo など）を当てるので、ここで指定し直す。
+     Meiryo では日本語の斜体が傾かないが、Yu Gothic UI は傾く（Chrome 157 で確認） */
+  font-family: "Segoe UI", "Yu Gothic UI", "Yu Gothic", "Meiryo UI", system-ui, sans-serif;
+  font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+button:hover {
+  background: var(--hover);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+button.primary:hover {
+  filter: brightness(1.08);
+}
+
+button.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #ffffff;
+}
+
+button.toggle[aria-pressed="true"] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vertical-align: -3px;
+}
+
+svg .dot {
+  fill: currentColor;
+  stroke: none;
+}
+
+.sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 4px;
+  background: var(--border);
+}
+
+/* 上部の操作バー */
+.appbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.privacy {
+  color: var(--muted);
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.icon-button {
+  padding: 5px 7px;
+}
+
+/* 原文とプレビュー */
+.workspace {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+
+.workspace.source-open {
+  grid-template-columns: minmax(280px, 2fr) minmax(0, 3fr);
+}
+
+.workspace:not(.source-open) .source-pane {
+  display: none;
+}
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.source-pane {
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.format-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.format-bar button {
+  border-color: transparent;
+  background: transparent;
+  padding: 3px 6px;
+  min-width: 28px;
+}
+
+.format-bar button:hover {
+  background: var(--hover);
+}
+
+.text-icon {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.text-icon.bold {
+  font-weight: 800;
+}
+
+.source {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  resize: none;
+  border: 0;
+  padding: 12px 14px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: Consolas, "BIZ UDGothic", "MS Gothic", monospace;
+  font-size: 13.5px;
+  line-height: 1.6;
+  tab-size: 4;
+}
+
+.source:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.source::placeholder {
+  color: var(--placeholder);
+  font-family: "Segoe UI", "Yu Gothic UI", "Meiryo UI", system-ui, sans-serif;
+  font-size: 16px;
+}
+
+.is-empty .source {
+  background: repeating-linear-gradient(135deg, transparent 0 12px, var(--hover) 12px 13px), var(--surface);
+}
+
+.preview-pane {
+  background: var(--bg);
+}
+
+.banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--banner);
+  border-bottom: 1px solid var(--banner-border);
+  font-size: 13px;
+}
+
+.banner[hidden] {
+  display: none;
+}
+
+.banner button {
+  padding: 2px 8px;
+}
+
+.status.error {
+  color: var(--danger);
+}
+
+.preview-scroller {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px 28px 40px;
+}
+
+.preview-scroller:focus-visible {
+  outline-offset: -2px;
+}
+
+.empty-hint {
+  display: none;
+  margin: 12vh auto 0;
+  max-width: 440px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.is-empty .empty-hint {
+  display: block;
+}
+
+.empty-title {
+  font-size: 18px;
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* プレビューの本文 */
+.markdown-body {
+  font-size: 15px;
+  max-width: 920px;
+  margin: 0 auto;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.markdown-body > :first-child {
+  margin-top: 0;
+}
+
+.markdown-body h1,
+.markdown-body h2 {
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid var(--border);
+}
+
+.markdown-body h1 { font-size: 1.8em; }
+.markdown-body h2 { font-size: 1.45em; }
+.markdown-body h3 { font-size: 1.2em; }
+
+.markdown-body a {
+  color: var(--focus);
+}
+
+.markdown-body a:not([href]) {
+  color: inherit;
+  text-decoration: underline dotted;
+}
+
+.markdown-body code,
+.markdown-body kbd {
+  font-family: Consolas, "BIZ UDGothic", monospace;
+  font-size: 0.92em;
+  background: var(--code-bg);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+
+.markdown-body kbd {
+  border: 1px solid var(--border);
+}
+
+.markdown-body pre {
+  background: var(--code-bg);
+  border-radius: 6px;
+  padding: 12px 14px;
+  overflow: auto;
+  line-height: 1.5;
+}
+
+.markdown-body pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.9em;
+}
+
+.markdown-body blockquote {
+  margin: 0 0 1em;
+  padding: 0 1em;
+  color: var(--muted);
+  border-left: 4px solid var(--border);
+}
+
+.markdown-body table {
+  border-collapse: collapse;
+  display: block;
+  max-width: 100%;
+  overflow: auto;
+}
+
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid var(--border);
+  padding: 5px 10px;
+}
+
+.markdown-body th {
+  background: var(--code-bg);
+}
+
+.markdown-body th[align="center"],
+.markdown-body td[align="center"] { text-align: center; }
+.markdown-body th[align="right"],
+.markdown-body td[align="right"] { text-align: right; }
+.markdown-body th[align="left"],
+.markdown-body td[align="left"] { text-align: left; }
+
+.markdown-body hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 1.5em 0;
+}
+
+.markdown-body li > input[type="checkbox"] {
+  margin: 0 0.4em 0 -1.3em;
+  vertical-align: -1px;
+}
+
+.markdown-body li:has(> input[type="checkbox"]) {
+  list-style: none;
+}
+
+.markdown-body details {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  margin-bottom: 1em;
+}
+
+.markdown-body summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.mtc-image {
+  display: inline-block;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: 0.92em;
+}
+
+.mtc-image::before {
+  content: "🖼 ";
+}
+
+/* 通知 */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  max-width: min(640px, 90vw);
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: var(--text);
+  color: var(--bg);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 25%);
+  z-index: 10;
+}
+
+.toast.error {
+  background: var(--danger);
+  color: #ffffff;
+}
+
+.toast[hidden] {
+  display: none;
+}
+
+/* ダイアログ */
+.dialog {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 20px 24px;
+  max-width: min(480px, 92vw);
+}
+
+.dialog::backdrop {
+  background: rgb(0 0 0 / 35%);
+}
+
+.dialog h2 {
+  margin-top: 0;
+  font-size: 17px;
+}
+
+.dialog h3 {
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.dialog a {
+  color: var(--focus);
+}
+
+.about-description,
+.about-privacy,
+.about-licenses {
+  color: var(--muted);
+}
+
+.about-license a {
+  margin-left: 0.6em;
+}
+
+.about-licenses {
+  padding-left: 1.2em;
+  margin-top: 4px;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+/* メニュー（見出し・その他・設定） */
+.menu-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 20%);
+}
+
+.menu[hidden] {
+  display: none;
+}
+
+.menu-right {
+  left: auto;
+  right: 0;
+}
+
+.menu [role="menuitem"] {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-weight: normal;
+}
+
+.menu [role="menuitem"]:hover,
+.menu [role="menuitem"]:focus-visible {
+  background: var(--hover);
+}
+
+.menu .h1 { font-size: 1.25em; font-weight: 700; }
+.menu .h2 { font-size: 1.12em; font-weight: 700; }
+.menu .h3 { font-size: 1em; font-weight: 700; }
+
+.format-bar .menu-button {
+  font-weight: 600;
+}
+
+/* 追加構文の画面 */
+.syntax-dialog {
+  max-width: min(560px, 94vw);
+}
+
+.dialog-note {
+  color: var(--muted);
+  margin-top: 0;
+}
+
+.syntax-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.syntax-list label,
+.save-default {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.syntax-list input,
+.save-default input {
+  margin-top: 3px;
+}
+
+.syntax-list span {
+  display: flex;
+  flex-direction: column;
+}
+
+.syntax-list small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.save-default {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+/* 追加構文のプレビュー */
+.markdown-body .markdown-alert {
+  border-left: 4px solid var(--alert, #0969da);
+  padding: 4px 14px;
+  margin: 0 0 1em;
+}
+
+.markdown-body .markdown-alert-note { --alert: #0969da; }
+.markdown-body .markdown-alert-tip { --alert: #1a7f37; }
+.markdown-body .markdown-alert-important { --alert: #8250df; }
+.markdown-body .markdown-alert-warning { --alert: #9a6700; }
+.markdown-body .markdown-alert-caution { --alert: #cf222e; }
+
+@media (prefers-color-scheme: dark) {
+  .markdown-body .markdown-alert-note { --alert: #4493f8; }
+  .markdown-body .markdown-alert-tip { --alert: #3fb950; }
+  .markdown-body .markdown-alert-important { --alert: #ab7df8; }
+  .markdown-body .markdown-alert-warning { --alert: #d29922; }
+  .markdown-body .markdown-alert-caution { --alert: #f85149; }
+}
+
+.markdown-body .markdown-alert-title {
+  color: var(--alert);
+  font-weight: 700;
+  margin: 0.3em 0;
+}
+
+.markdown-body .mtc-container {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 14px;
+  margin: 0 0 1em;
+}
+
+.markdown-body .mtc-container-title {
+  font-weight: 700;
+  margin: 0.3em 0;
+  color: var(--muted);
+}
+
+.markdown-body .mtc-math {
+  font-family: Consolas, "BIZ UDGothic", monospace;
+  font-size: 0.92em;
+  color: var(--muted);
+}
+
+.markdown-body div.mtc-math {
+  white-space: pre-wrap;
+  background: var(--code-bg);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 0 0 1em;
+}
+
+.markdown-body .mtc-wikilink {
+  color: var(--focus);
+  text-decoration: underline dotted;
+}
+
+.markdown-body mark {
+  background: #fff3a3;
+  color: #1f2328;
+  padding: 0 2px;
+}
+
+.markdown-body dt {
+  font-weight: 700;
+}
+
+.markdown-body dd {
+  margin: 0 0 0.4em 1.5em;
+}
+
+.markdown-body .footnotes {
+  font-size: 0.9em;
+  color: var(--muted);
+}
+
+.markdown-body .footnote-ref a,
+.markdown-body .footnote-backref {
+  text-decoration: none;
+}
+
+/* 狭い画面では縦に並べる */
+@media (max-width: 860px) {
+  .workspace.source-open {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(180px, 2fr) minmax(0, 3fr);
+  }
+
+  .source-pane {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .preview-scroller {
+    padding: 14px 16px 32px;
+  }
+
+  .actions {
+    margin-left: 0;
+  }
+}
