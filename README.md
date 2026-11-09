@@ -25,7 +25,7 @@ MarkdownTrellis Clip は、AIの回答などからコピーしたMarkdownを一�
 
 ## インストール
 
-正式な配布先は Chrome ウェブストアです（無料）。ストアのページは、公開後に Web ページからリンクします。
+正式な配布先は [Chrome ウェブストア](https://chromewebstore.google.com/detail/markdowntrellis-clip/igldgckfcgjoinkicilfpkcbfilpggoe)です（無料）。
 
 - Web ページ: https://www.ja1bus.com/markdowntrellis-clip/
 

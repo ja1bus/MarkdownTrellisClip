@@ -25,7 +25,7 @@ The text you enter is handled only in the work tab's memory and is never saved o
 
 ## Installation
 
-The official distribution is the Chrome Web Store (free). The store page will be linked from the web page after release.
+The official distribution is the [Chrome Web Store](https://chromewebstore.google.com/detail/markdowntrellis-clip/igldgckfcgjoinkicilfpkcbfilpggoe) (free).
 
 - Web page: https://www.ja1bus.com/markdowntrellis-clip/en/
 
