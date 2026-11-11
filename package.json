@@ -1,6 +1,6 @@
 {
   "name": "markdown-trellis-clip",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "description": "MarkdownTrellis Clip: Markdownを貼って、整えて、コピー。",
   "type": "module",

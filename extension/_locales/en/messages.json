@@ -339,7 +339,7 @@
     "message": "When you paste formatted (HTML) text, convert it to Markdown automatically."
   },
   "pasteNote": {
-    "message": "When you paste an answer copied from ChatGPT, Copilot or elsewhere, headings, bold, lists, tables, links and code come in as Markdown. Text without formatting and Markdown source are pasted as they are. When this is off, only the text is pasted, as before."
+    "message": "Paste an AI answer or other formatted text, and its headings, bold, lists, tables, links and code come in as Markdown. Text without formatting and Markdown source are pasted as they are. When this is off, only the text is pasted, as before."
   },
   "pasteSaved": {
     "message": "Paste settings saved"

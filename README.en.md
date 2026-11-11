@@ -9,7 +9,7 @@ This repository contains the source code of the publicly released MarkdownTrelli
 ## Features
 
 - Opens a work tab from the toolbar icon. Ctrl+V takes in plain text only. The source and the preview are shown side by side
-- Paste formatted text (off by default; turn it on in ⚙ > Paste settings…): formatted (HTML) text copied from ChatGPT, Copilot or elsewhere comes in as Markdown headings, bold, lists, tables, links and code. Text without formatting and Markdown source are pasted as they are
+- Paste formatted text (off by default; turn it on in ⚙ > Paste settings…): formatted (HTML) text copied from an AI answer or elsewhere comes in as Markdown headings, bold, lists, tables, links and code. Text without formatting and Markdown source are pasted as they are
 - GitHub Flavored Markdown: headings, emphasis, lists, task lists, tables, strikethrough, links, autolinks, code, quotes and horizontal rules
 - Formatting buttons: headings, bold, italic, strikethrough, lists, checklists, links, images, tables, inline code, code blocks, quotes and horizontal rules (each action is undone with one Ctrl+Z)
 - Copy Markdown (the source as is), Copy Formatted (HTML with inline styles plus matching plain text) and Copy Selection Formatted
