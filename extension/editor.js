@@ -1,11 +1,12 @@
 // 作業タブの画面処理。本文・選択・履歴・プレビューはこのタブのメモリだけに置き、どこにも保存しない。
-// 保存するのは追加構文の既定値だけ（settings.js）。
+// 保存するのは追加構文の既定値と、書式付きテキストの貼り付けの ON/OFF だけ（settings.js）。
 import { createRenderer } from "./core/render.js";
 import { toClipboardPayload } from "./core/richcopy.js";
 import { formatEdit } from "./core/formatter.js";
 import { buildDownloadName, buildMarkdownBlob } from "./core/download.js";
 import { FEATURES, GITHUB_PRESET, normalizeFeatures, usesOutsideDefinitions } from "./core/extensions.js";
-import { loadDefaultFeatures, saveDefaultFeatures } from "./settings.js";
+import { choosePaste } from "./core/htmlpaste.js";
+import { loadDefaultFeatures, saveDefaultFeatures, loadPasteHtml, savePasteHtml, watchPasteHtml } from "./settings.js";
 
 const FEATURE_LABELS = {
   alerts: "featureAlerts",
@@ -39,6 +40,7 @@ const state = {
   timer: 0,
   toastTimer: 0,
   features: [], // このタブで有効な追加構文
+  pasteHtml: false, // 書式付きテキスト（HTML）を Markdown に変換して貼り付けるか（保存した設定。初期値 OFF）
 };
 
 localize();
@@ -53,6 +55,14 @@ loadDefaultFeatures().then((features) => {
   if (source.value !== "") {
     updatePreview();
   }
+});
+
+// 書式付きテキストの貼り付けの設定を読む。別のタブで変えたときも、次の貼り付けから反映する
+loadPasteHtml().then((enabled) => {
+  state.pasteHtml = enabled;
+});
+watchPasteHtml((enabled) => {
+  state.pasteHtml = enabled;
 });
 
 // 戻る・進むのキャッシュから表示し直された場合も、前の内容を残さない
@@ -95,6 +105,14 @@ function bindSource(el) {
     }
     onSourceChanged();
   });
+  // 設定が ON で、書式付きテキストを Markdown にできるときだけ、標準の貼り付けの代わりに変換結果を入れる（Undo 1回で戻る）
+  el.addEventListener("paste", (event) => {
+    const markdown = convertPaste(event.clipboardData);
+    if (markdown !== null) {
+      event.preventDefault();
+      insertText(markdown);
+    }
+  });
   el.addEventListener("keydown", (event) => {
     if (event.isComposing || state.composing) {
       return;
@@ -121,6 +139,7 @@ function bindCommands() {
   $("clear").addEventListener("click", confirmClear);
   $("about").addEventListener("click", () => $("aboutDialog").showModal());
   $("openSyntax").addEventListener("click", openSyntaxDialog);
+  $("openPaste").addEventListener("click", openPasteDialog);
   $("syntaxFromBanner").addEventListener("click", openSyntaxDialog);
   $("presetGitHub").addEventListener("click", () => setDialogFeatures(GITHUB_PRESET));
   $("clearFeatures").addEventListener("click", () => setDialogFeatures([]));
@@ -180,17 +199,39 @@ function bindCommands() {
   }, true);
 
   // 上で受けられなかった貼り付け（メニューからの貼り付けなど）も、原文へ text/plain だけを取り込む
+  // （書式付きテキストの貼り付けが ON なら、原文での貼り付けと同じく Markdown に変換する）
   document.addEventListener("paste", (event) => {
     if (event.target === source || isEditable(event.target)) {
       return;
     }
-    const text = event.clipboardData?.getData("text/plain") ?? "";
+    const text = convertPaste(event.clipboardData) ?? event.clipboardData?.getData("text/plain") ?? "";
     if (text === "") {
       return;
     }
     event.preventDefault();
     pasteFromOutside(text);
   });
+}
+
+/**
+ * 書式付きテキストの貼り付け。設定が ON で、クリップボードの HTML に意味のある書式があれば Markdown を返す。
+ * null のときは変換せず、これまでどおり text/plain を貼り付ける（書式がない・Markdown の原文がある・長い・変換できない）。
+ */
+function convertPaste(data) {
+  if (!state.pasteHtml || !data) {
+    return null;
+  }
+  const plain = data.getData("text/plain");
+  const result = choosePaste({ html: data.getData("text/html"), plain }, { DOMParser: window.DOMParser });
+  if (result.kind === "markdown") {
+    return result.text;
+  }
+  if (result.reason === "too-long" && plain !== "") {
+    toast(t("pasteTooLong"));
+  } else if ((result.reason === "error" || result.reason === "empty") && plain === "") {
+    toast(t("pasteFailed"), { error: true });
+  }
+  return null;
 }
 
 function isEditable(target) {
@@ -298,6 +339,26 @@ function openSyntaxDialog() {
       } catch {
         toast(t("syntaxSaveFailed"), { error: true });
       }
+    }
+  }, { once: true });
+  dialog.showModal();
+}
+
+function openPasteDialog() {
+  const dialog = $("pasteDialog");
+  $("pasteHtml").checked = state.pasteHtml;
+  dialog.returnValue = "";
+  dialog.addEventListener("close", async () => {
+    if (dialog.returnValue !== "ok") {
+      return;
+    }
+    const enabled = $("pasteHtml").checked;
+    state.pasteHtml = enabled;
+    try {
+      await savePasteHtml(enabled);
+      toast(t("pasteSaved"));
+    } catch {
+      toast(t("pasteSaveFailed"), { error: true });
     }
   }, { once: true });
   dialog.showModal();

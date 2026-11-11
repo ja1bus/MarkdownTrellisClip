@@ -186,7 +186,7 @@
     "message": "バージョン $1"
   },
   "aboutPrivacy": {
-    "message": "入力した本文はこのタブの中だけで扱い、保存も外部への送信もしません。保存するのは追加構文の既定値（オン・オフ）だけです。"
+    "message": "入力した本文はこのタブの中だけで扱い、保存も外部への送信もしません。保存するのは設定（追加構文の既定値と、書式付きテキストの貼り付けのオン・オフ）だけです。"
   },
   "thirdParty": {
     "message": "第三者ライブラリ"
@@ -325,5 +325,32 @@
   },
   "licenseText": {
     "message": "ライセンス全文"
+  },
+  "pasteMenu": {
+    "message": "貼り付けの設定…"
+  },
+  "pasteTitle": {
+    "message": "貼り付けの設定"
+  },
+  "pasteHtml": {
+    "message": "書式付きテキストの貼り付け"
+  },
+  "pasteHtmlHelp": {
+    "message": "HTML形式の書式付きテキストを貼り付けるとき、自動的にMarkdownへ変換します。"
+  },
+  "pasteNote": {
+    "message": "ChatGPT や Copilot の回答などをコピーして貼り付けると、見出し・太字・リスト・表・リンク・コードを Markdown にして取り込みます。書式のない文章や Markdown の原文は、そのまま貼り付けます。OFF のときは、これまでどおり文字だけを貼り付けます。"
+  },
+  "pasteSaved": {
+    "message": "貼り付けの設定を保存しました"
+  },
+  "pasteSaveFailed": {
+    "message": "貼り付けの設定を保存できませんでした"
+  },
+  "pasteTooLong": {
+    "message": "長いため、書式を変換せずに文字だけを貼り付けました"
+  },
+  "pasteFailed": {
+    "message": "貼り付けられませんでした"
   }
 }

@@ -9,6 +9,7 @@ This repository contains the source code of the publicly released MarkdownTrelli
 ## Features
 
 - Opens a work tab from the toolbar icon. Ctrl+V takes in plain text only. The source and the preview are shown side by side
+- Paste formatted text (off by default; turn it on in ⚙ > Paste settings…): formatted (HTML) text copied from ChatGPT, Copilot or elsewhere comes in as Markdown headings, bold, lists, tables, links and code. Text without formatting and Markdown source are pasted as they are
 - GitHub Flavored Markdown: headings, emphasis, lists, task lists, tables, strikethrough, links, autolinks, code, quotes and horizontal rules
 - Formatting buttons: headings, bold, italic, strikethrough, lists, checklists, links, images, tables, inline code, code blocks, quotes and horizontal rules (each action is undone with one Ctrl+Z)
 - Copy Markdown (the source as is), Copy Formatted (HTML with inline styles plus matching plain text) and Copy Selection Formatted
@@ -16,7 +17,7 @@ This repository contains the source code of the publicly released MarkdownTrelli
 - Extra syntax (alerts, footnotes, math shown as text, containers, highlight, wiki links, definition lists) with detection and a saved default
 - Download the source as .md; Clear erases the source and the undo history
 
-The text you enter is handled only in the work tab's memory and is never saved or sent anywhere. The only permission is `storage` (for the extra syntax default). There is no website access, no content script and no analytics. The preview uses DOMPurify's allowlist and the extension page's CSP to prevent script execution and external loading.
+The text you enter is handled only in the work tab's memory and is never saved or sent anywhere. Only your settings are saved (the extra syntax default and whether to paste formatted text). The only permission is `storage` (for saving the settings). There is no website access, no content script and no analytics. The preview uses DOMPurify's allowlist and the extension page's CSP to prevent script execution and external loading.
 
 ## Supported OS and requirements
 
@@ -72,8 +73,8 @@ npm run e2e     # starts the installed Chrome with a temporary profile and no wi
 | `extension/manifest.json` | Manifest V3 definition (`storage` permission only, CSP) |
 | `extension/background.js` | Service worker. Opens a work tab when the icon is clicked |
 | `extension/editor.html` / `editor.css` / `editor.js` | Work screen (source, formatting buttons, preview, copy, download, clear) |
-| `extension/core/` | Logic independent of the screen (front matter and outer fence, conversion and sanitizing, extra syntax, formatted copy, formatting) |
-| `extension/settings.js` | Saves the extra syntax default (the only file that uses storage) |
+| `extension/core/` | Logic independent of the screen (front matter and outer fence, conversion and sanitizing, extra syntax, formatted copy, formatting, pasting formatted text) |
+| `extension/settings.js` | Saves the settings (extra syntax default, pasting formatted text). The only file that uses storage |
 | `extension/vendor/` / `extension/licenses/` | Bundled libraries (marked, DOMPurify) and their licenses, copied from `node_modules` with `npm run vendor` |
 | `extension/_locales/` / `extension/icons/` | Languages (English and Japanese) and icons (made with `node tools/make-icons.mjs`) |
 | `tests/` | Node.js unit tests (`node:test`, jsdom) |

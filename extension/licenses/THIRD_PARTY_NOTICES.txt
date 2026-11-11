@@ -27,3 +27,11 @@ DOMPurify 3.4.17
   Apache License 2.0.
   Copyright (c) Cure53 and other contributors
   Full text: dompurify-LICENSE.txt
+
+-----------------------------------------------------------------
+Turndown 7.2.5
+  File: vendor/turndown.browser.es.js
+  https://github.com/mixmark-io/turndown
+  License: MIT License
+  Copyright (c) 2017 Dom Christie
+  Full text: turndown-LICENSE.txt

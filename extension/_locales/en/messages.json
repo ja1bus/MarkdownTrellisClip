@@ -186,7 +186,7 @@
     "message": "Version $1"
   },
   "aboutPrivacy": {
-    "message": "Text you enter is handled only inside this tab. It is never saved or sent anywhere. Only the default on/off state of extra syntax is saved."
+    "message": "Text you enter is handled only inside this tab. It is never saved or sent anywhere. Only your settings are saved: the default on/off state of extra syntax and whether to paste formatted text."
   },
   "thirdParty": {
     "message": "Third-party libraries"
@@ -325,5 +325,32 @@
   },
   "licenseText": {
     "message": "License text"
+  },
+  "pasteMenu": {
+    "message": "Paste settings…"
+  },
+  "pasteTitle": {
+    "message": "Paste settings"
+  },
+  "pasteHtml": {
+    "message": "Paste formatted text"
+  },
+  "pasteHtmlHelp": {
+    "message": "When you paste formatted (HTML) text, convert it to Markdown automatically."
+  },
+  "pasteNote": {
+    "message": "When you paste an answer copied from ChatGPT, Copilot or elsewhere, headings, bold, lists, tables, links and code come in as Markdown. Text without formatting and Markdown source are pasted as they are. When this is off, only the text is pasted, as before."
+  },
+  "pasteSaved": {
+    "message": "Paste settings saved"
+  },
+  "pasteSaveFailed": {
+    "message": "Could not save the paste settings"
+  },
+  "pasteTooLong": {
+    "message": "The text is long, so it was pasted as plain text without converting the formatting"
+  },
+  "pasteFailed": {
+    "message": "Could not paste"
   }
 }

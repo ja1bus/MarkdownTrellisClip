@@ -14,8 +14,10 @@ const stripSourceMap = (text) => text.replace(/\n\/\/# sourceMappingURL=\S+\s*$/
 const items = [
   { from: "node_modules/marked/lib/marked.esm.js", to: "extension/vendor/marked.esm.js", transform: stripSourceMap },
   { from: "node_modules/dompurify/dist/purify.es.mjs", to: "extension/vendor/purify.es.mjs", transform: stripSourceMap },
+  { from: "node_modules/turndown/lib/turndown.browser.es.js", to: "extension/vendor/turndown.browser.es.js", transform: stripSourceMap },
   { from: "node_modules/marked/LICENSE", to: "extension/licenses/marked-LICENSE.txt" },
   { from: "node_modules/dompurify/LICENSE", to: "extension/licenses/dompurify-LICENSE.txt" },
+  { from: "node_modules/turndown/LICENSE", to: "extension/licenses/turndown-LICENSE.txt" },
 ];
 
 let failed = 0;

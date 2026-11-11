@@ -622,9 +622,9 @@ try {
     const pageReopened = await openEditor();
     assert(await pageReopened.value() === "", "新しいタブに本文が出た");
     const storage = await pageReopened.eval("(async () => ({ local: localStorage.length, session: sessionStorage.length, ext: await chrome.storage.local.get(null), sync: Object.keys(await chrome.storage.sync.get(null)).length, idb: (await indexedDB.databases()).length }))()").catch((error) => ({ error: error.message }));
-    // 拡張の保存領域にあってよいのは、追加構文の既定値（defaultFeatures）だけ
+    // 拡張の保存領域にあってよいのは、追加構文の既定値（defaultFeatures）と書式付きテキストの貼り付けの ON/OFF（pasteHtml）だけ
     const extKeys = Object.keys(storage.ext ?? {});
-    assert(!storage.error && storage.local === 0 && storage.session === 0 && storage.sync === 0 && storage.idb === 0 && extKeys.every((key) => key === "defaultFeatures"), `保存領域: ${JSON.stringify(storage)}`);
+    assert(!storage.error && storage.local === 0 && storage.session === 0 && storage.sync === 0 && storage.idb === 0 && extKeys.every((key) => key === "defaultFeatures" || key === "pasteHtml"), `保存領域: ${JSON.stringify(storage)}`);
     assert(!JSON.stringify(storage.ext).includes("本文"), "本文が保存されている");
   });
 
@@ -680,6 +680,195 @@ try {
     assert((await q.eval("document.getElementById('preview').innerHTML")).includes("markdown-alert-note"), "キャンセルで変わった");
     // 後の確認のため、既定値を空に戻す
     await q.eval("chrome.storage.local.clear()");
+  });
+
+  await check("書式付きテキストの貼り付け: 初期値OFF、ONでHTMLをMarkdownに変換、書式なし・Markdownの原文はそのまま、Undo/Redo、既存の設定を残す", async () => {
+    const p = await openEditor();
+    const val = () => p.value();
+    const clear = () => p.eval("(() => { const s = document.getElementById('source'); s.focus(); s.select(); document.execCommand('delete'); })()");
+    const pasteWith = async (plain, html) => {
+      await p.setClipboard(plain, html);
+      await p.eval("document.getElementById('source').focus()");
+      await p.key("v", { ctrl: true });
+      await sleep(500);
+    };
+    // Microsoft 365 Copilot の回答をまねた HTML（h2・strong・CSS 付きの4列の表・ul・a・br）。text/plain は書式なし
+    const copilotHtml = "<div style=\"font-family: 'Segoe UI'\"><h2 style=\"font-weight: 600\">導入の手順</h2>"
+      + "<p>次の<strong>3つ</strong>を確認します。<br>詳しくは<a href=\"https://example.com/learn\">Learn</a>へ。</p>"
+      + "<table style=\"border-collapse: collapse\"><thead><tr><th style=\"border: 1px solid #ccc\">項目</th><th>内容（Description）</th><th>担当</th><th>参考</th></tr></thead>"
+      + "<tbody><tr><td><strong>準備</strong></td><td>1行目<br>2行目</td><td>A|B</td><td><a href=\"https://example.com/doc\">手順書</a></td></tr></tbody></table>"
+      + "<ul><li>Teams</li><li><span style=\"font-weight: bold\">Outlook</span></li></ul></div>";
+    const copilotPlain = "導入の手順\n次の3つを確認します。\n項目\t内容（Description）\t担当\t参考\n準備\t1行目 2行目\tA|B\t手順書\nTeams\nOutlook";
+    const expected = [
+      "## 導入の手順", "", "次の**3つ**を確認します。  ", "詳しくは[Learn](https://example.com/learn)へ。", "",
+      "| 項目 | 内容（Description） | 担当 | 参考 |", "| --- | --- | --- | --- |", "| **準備** | 1行目<br>2行目 | A\\|B | [手順書](https://example.com/doc) |", "",
+      "- Teams", "- **Outlook**",
+    ].join("\n");
+
+    // 既存の設定（追加構文の既定値）を入れておき、貼り付けの設定を保存しても残ること
+    await p.eval("chrome.storage.local.set({ defaultFeatures: ['alerts'] })");
+
+    // 初期値は OFF: HTML があっても text/plain を貼る
+    await pasteWith(copilotPlain, copilotHtml);
+    assert(await val() === copilotPlain, `OFF で text/plain にならない: ${await val()}`);
+    await p.click("#settingsMenuButton");
+    await p.click("#openPaste");
+    await sleep(100);
+    let s = await p.eval("({ open: document.getElementById('pasteDialog').open, checked: document.getElementById('pasteHtml').checked, text: document.getElementById('pasteDialog').textContent })");
+    assert(s.open && !s.checked, `初期値が OFF でない: ${JSON.stringify(s)}`);
+    assert(lang === "ja"
+      ? s.text.includes("書式付きテキストの貼り付け") && s.text.includes("HTML形式の書式付きテキストを貼り付けるとき、自動的にMarkdownへ変換します。")
+      : s.text.includes("Paste formatted text") && s.text.includes("convert it to Markdown automatically"), `表示: ${s.text}`);
+    // キャンセルでは変わらない
+    await p.click("#pasteHtml");
+    await p.click("#pasteDialog button[value='cancel']");
+    await sleep(200);
+    assert(JSON.stringify(await p.eval("chrome.storage.local.get(null)")) === JSON.stringify({ defaultFeatures: ["alerts"] }), "キャンセルで保存された");
+    // ON にして保存
+    await p.click("#settingsMenuButton");
+    await p.click("#openPaste");
+    await sleep(100);
+    assert(!(await p.eval("document.getElementById('pasteHtml').checked")), "キャンセルした変更が残っている");
+    await p.click("#pasteHtml");
+    await p.screenshot("12-paste-dialog");
+    await p.click("#pasteDialog button[value='ok']");
+    await sleep(300);
+    const stored = await p.eval("chrome.storage.local.get(null)");
+    assert(stored.pasteHtml === true && JSON.stringify(stored.defaultFeatures) === JSON.stringify(["alerts"]) && Object.keys(stored).length === 2, `保存内容: ${JSON.stringify(stored)}`);
+    assert((await p.toast()) === (lang === "ja" ? "貼り付けの設定を保存しました" : "Paste settings saved"), `通知: ${await p.toast()}`);
+
+    // ON: Copilot の HTML を Markdown に変換する（Chrome のクリップボードを通しても日本語が壊れない）
+    await clear();
+    await pasteWith(copilotPlain, copilotHtml);
+    assert(await val() === expected, `変換結果:\n${await val()}`);
+    const html = await p.eval("document.getElementById('preview').innerHTML");
+    for (const part of ["<h2>導入の手順</h2>", "<strong>3つ</strong>", "<th>内容（Description）</th>", "1行目<br>2行目", "<td>A|B</td>", "href=\"https://example.com/doc\"", "<strong>Outlook</strong>"]) {
+      assert(html.includes(part), `プレビューに ${part} がない`);
+    }
+    await p.screenshot("13-paste-html");
+    // 編集した後の書式付きコピー
+    await p.eval("(() => { const s = document.getElementById('source'); s.focus(); s.setSelectionRange(0, 0); document.execCommand('insertText', false, '追記の段落\\n\\n'); })()");
+    await sleep(400);
+    await p.click("#copyRich");
+    await sleep(200);
+    const clip = await p.readClipboard();
+    assert(clip["text/html"].includes("追記の段落") && /<h2[^>]*>導入の手順<\/h2>/u.test(clip["text/html"]) && clip["text/html"].includes("<table") && clip["text/html"].includes("<strong>準備</strong>"), `書式付きコピー: ${clip["text/html"].slice(0, 300)}`);
+
+    // カーソル位置への挿入・選択範囲の置き換え・Undo・Redo
+    await clear();
+    await p.eval("(() => { const s = document.getElementById('source'); document.execCommand('insertText', false, '前後'); s.setSelectionRange(1, 1); })()");
+    await pasteWith("太字", "<p><b>太字</b></p>");
+    assert(await val() === "前**太字**後", `途中への挿入: ${await val()}`);
+    await p.eval("document.getElementById('source').setSelectionRange(1, 7)");
+    await pasteWith("見出し", "<h3>見出し</h3>");
+    assert(await val() === "前### 見出し後", `選択範囲の置き換え: ${await val()}`);
+    await p.key("z", { ctrl: true });
+    assert(await val() === "前**太字**後", `Undo 1回で戻らない: ${await val()}`);
+    await p.key("z", { ctrl: true });
+    assert(await val() === "前後", `Undo 2回で戻らない: ${await val()}`);
+    await p.key("y", { ctrl: true });
+    assert(await val() === "前**太字**後", `Redo で戻らない: ${await val()}`);
+
+    // 書式のない HTML・Markdown の原文（AI のコピーボタンなど）は text/plain のまま
+    await clear();
+    await pasteWith("ただの  文章\n二行目", "<p><span style=\"font-weight: 400\">ただの  文章</span></p><p>二行目</p>");
+    assert(await val() === "ただの  文章\n二行目", `書式のない HTML: ${await val()}`);
+    await clear();
+    const markdownPlain = "## 見出し\n\n**太字**と$x^2$";
+    await pasteWith(markdownPlain, "<h2>見出し</h2><p><strong>太字</strong>と<span class=\"katex\">x2</span></p>");
+    assert(await val() === markdownPlain, `Markdown の原文: ${await val()}`);
+
+    // 危険な HTML: 実行・通信・ダイアログが起きず、危険なリンクを出さない
+    await clear();
+    externalRequests.length = 0;
+    // 試験でクリップボードへ入れるとき（clipboard.write）、Chrome は HTML を安全化のために解析し、イベント属性を CSP 違反として記録する。
+    // これは入れる側（試験）の記録で実行もされないので除き、貼り付け（拡張の処理）で記録が増えないことを下の Console の確認で見る
+    const written = consoleProblems.length;
+    await p.setClipboard("x", "<p onclick=\"window.__bad=1\"><b>安全</b> <a href=\"javascript:window.__bad=2\">危険</a> <img src=\"https://example.com/track.png\" alt=\"図\" onerror=\"window.__bad=3\"></p><script>window.__bad=4</script><iframe src=\"https://example.com/\"></iframe>");
+    await sleep(200);
+    const fromWrite = consoleProblems.splice(written);
+    assert(fromWrite.every((line) => line.includes("inline event handler")), `クリップボードへの書き込みで想定外の記録: ${fromWrite.join("\n")}`);
+    await p.eval("document.getElementById('source').focus()");
+    await p.key("v", { ctrl: true });
+    await sleep(500);
+    assert(await val() === "**安全** 危険 図", `危険な HTML: ${await val()}`);
+    assert(await p.eval("window.__bad === undefined"), "スクリプトが実行された");
+    assert(externalRequests.length === 0 && dialogs.length === 0, `通信・ダイアログ: ${JSON.stringify({ externalRequests, dialogs })}`);
+
+    // 原文の外（プレビュー）で貼り付けても変換する
+    await clear();
+    await p.setClipboard("外", "<p><em>外</em></p>");
+    await p.eval("document.getElementById('previewScroller').focus()");
+    await p.key("v", { ctrl: true });
+    await sleep(300);
+    assert(await val() === "*外*", `原文の外での貼り付け: ${await val()}`);
+
+    // 長い回答: 上限（変換結果 20,000 字）に近い長さでも固まらない。上限を超えたら変換せず text/plain を貼り、案内する
+    await clear();
+    const rows = Array.from({ length: 800 }, (_, i) => `<li>項目 ${i}：<b>太字</b>の説明文です。</li>`).join("");
+    const started = Date.now();
+    await pasteWith("長い回答", `<ul>${rows}</ul>`);
+    const longValue = await val();
+    const elapsed = Date.now() - started;
+    console.log(`    変換結果 ${longValue.length.toLocaleString()} 字・${longValue.split("\n").length} 行の貼り付け: ${elapsed}ms`);
+    assert(longValue.startsWith("- 項目 0：**太字**の説明文です。") && longValue.length > 15000, `長い回答: ${longValue.slice(0, 80)}（${longValue.length} 字）`);
+    assert(elapsed < 10000, `長い回答の貼り付けが遅い: ${elapsed}ms`);
+    await clear();
+    await pasteWith("上限を超える回答", `<ul>${rows}${rows}</ul>`);
+    assert(await val() === "上限を超える回答", `上限を超えたとき: ${(await val()).slice(0, 80)}`);
+    assert((await p.toast()).includes(lang === "ja" ? "書式を変換せずに" : "without converting"), `上限を超えたときの案内: ${await p.toast()}`);
+
+    // ブラウザーで表示した HTML を選んでコピー（Chrome が作る実際のコピーの HTML）。取り消し線 S01〜S10・表・複合書式
+    // （2026-11-11 利用者の試験で、親要素の CSS の取り消し線 S07 が失われた不具合の回帰確認）
+    await clear();
+    const copied = await p.eval(`(() => {
+      const box = document.createElement("div");
+      box.id = "copySource";
+      const html = '<p><s>S01</s></p><p><del>S02</del></p><p><strike>S03</strike></p>'
+        + '<p><span style="text-decoration: line-through;">S04</span></p><p><span style="text-decoration-line: line-through;">S05</span></p>'
+        + '<p><span style="text-decoration: underline line-through;">S06</span></p>'
+        + '<p style="text-decoration: line-through;"><span>S07 親要素</span></p>'
+        + '<p><del><strong>S08</strong></del></p><p><del><em>S09</em></del></p><p>前半、<del>S10</del>、後半。</p>'
+        + '<table><tr><th>項目</th><th>内容</th></tr><tr><td>T02</td><td><del>無効</del> → <span style="text-decoration:line-through">CSS</span></td></tr></table>'
+        + '<p><a href="https://example.com/"><strong><em><del>X01</del></em></strong></a></p>'
+        + '<p><span style="font-weight:700;text-decoration:line-through;color:#be123c">X02</span></p>';
+      box.append(document.createRange().createContextualFragment(html));
+      document.body.append(box);
+      const range = document.createRange();
+      range.selectNodeContents(box);
+      getSelection().removeAllRanges();
+      getSelection().addRange(range);
+      const ok = document.execCommand("copy");
+      getSelection().removeAllRanges();
+      box.remove();
+      return ok;
+    })()`);
+    assert(copied, "選択範囲をコピーできない");
+    await p.eval("document.getElementById('source').focus()");
+    await p.key("v", { ctrl: true });
+    await sleep(500);
+    const strikes = await val();
+    for (const part of ["~~S01~~", "~~S02~~", "~~S03~~", "~~S04~~", "~~S05~~", "~~S06~~", "~~S07 親要素~~", "~~**S08**~~", "~~*S09*~~", "前半、~~S10~~、後半。",
+      "| T02 | ~~無効~~ → ~~CSS~~ |", "[***~~X01~~***](https://example.com/)", "**~~X02~~**"]) {
+      assert(strikes.includes(part), `${part} がない:\n${strikes}`);
+    }
+
+    // 別のタブで OFF にすると、このタブの次の貼り付けから反映する
+    const q = await openEditor();
+    await q.click("#settingsMenuButton");
+    await q.click("#openPaste");
+    await sleep(100);
+    assert(await q.eval("document.getElementById('pasteHtml').checked"), "新しいタブで ON になっていない");
+    await q.click("#pasteHtml");
+    await q.click("#pasteDialog button[value='ok']");
+    await sleep(300);
+    await clear();
+    await pasteWith("文字だけ", "<h2>文字だけ</h2>");
+    assert(await val() === "文字だけ", `別のタブで OFF にした後: ${await val()}`);
+    const after = await q.eval("chrome.storage.local.get(null)");
+    assert(after.pasteHtml === false && JSON.stringify(after.defaultFeatures) === JSON.stringify(["alerts"]), `保存内容: ${JSON.stringify(after)}`);
+    // 後の確認のため、ON に戻しておく（拡張の再起動後に保持されるかを最後に確かめる）。既定値は空に戻す
+    await q.eval("chrome.storage.local.clear().then(() => chrome.storage.local.set({ pasteHtml: true }))");
   });
 
   await check("メニュー: キーボードで開いて選べ、Escで閉じる", async () => {
@@ -778,12 +967,29 @@ try {
     assert(s.text.includes("MIT License") && links.includes("https://github.com/ja1bus/MarkdownTrellisClip") && links.includes("LICENSE.txt"), `MIT の表示: ${JSON.stringify(links)}`);
     const licenseText = await page2.eval("fetch('LICENSE.txt').then((r) => r.text()).catch(() => '')");
     assert(licenseText === "" || licenseText.includes("MIT License"), "LICENSE.txt の内容");
-    assert(s.text.includes("marked 18.1.3") && s.text.includes("DOMPurify 3.4.17"), "ライブラリの表記がない");
+    assert(s.text.includes("marked 18.1.3") && s.text.includes("DOMPurify 3.4.17") && s.text.includes("Turndown 7.2.5"), "ライブラリの表記がない");
     await page2.screenshot("08-about");
     const probe = await page2.eval("fetch('https://example.com/connect-probe').then(() => 'fetched', () => 'blocked')");
     assert(probe === "blocked", "connect-src が効いていない（外部へ fetch できた）");
     externalRequests.length = 0;
     await page2.key("Escape");
+  });
+
+  await check("拡張の再起動後も、書式付きテキストの貼り付けの設定（ON）を保持する", async () => {
+    await page2.eval("chrome.storage.local.get('pasteHtml')").then((v) => assert(v.pasteHtml === true, `再起動前: ${JSON.stringify(v)}`));
+    // 読み込んだときと同じ方法で読み込み直す（chrome://extensions の再読み込みと同じ。拡張のページは閉じられる）
+    const again = await cdp.send("Extensions.loadUnpacked", { path: resolve(extensionDir) });
+    assert(again.id === extensionId, `拡張IDが変わった: ${again.id}`);
+    await sleep(1000);
+    const { targetInfos } = await cdp.send("Target.getTargets");
+    assert(!targetInfos.some((t) => t.targetId === page2.targetId), "読み込み直しで作業タブが閉じられていない（再起動していない）");
+    const p = await openEditor();
+    await p.click("#settingsMenuButton");
+    await p.click("#openPaste");
+    await sleep(100);
+    assert(await p.eval("document.getElementById('pasteHtml').checked"), "再起動後に ON が保持されていない");
+    await p.key("Escape");
+    await p.eval("chrome.storage.local.clear()");
   });
 
   await check("Console に未処理のエラー・警告がない", async () => {

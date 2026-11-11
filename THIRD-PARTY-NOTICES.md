@@ -8,6 +8,7 @@ MarkdownTrellis Clip は、次の第三者ソフトウェアを `extension/vendo
 |---|---|---|---|
 | [marked](https://github.com/markedjs/marked) | 18.1.3 | MIT License (the license file also contains the original Markdown notice, BSD-style) | `extension/vendor/marked.esm.js`, `extension/licenses/marked-LICENSE.txt` |
 | [DOMPurify](https://github.com/cure53/DOMPurify) | 3.4.17 | Apache License 2.0 or Mozilla Public License 2.0 (used under the Apache License 2.0) | `extension/vendor/purify.es.mjs`, `extension/licenses/dompurify-LICENSE.txt` |
+| [Turndown](https://github.com/mixmark-io/turndown) | 7.2.5 | MIT License | `extension/vendor/turndown.browser.es.js`, `extension/licenses/turndown-LICENSE.txt` |
 
 The bundled files are copied from the npm packages without changes, except that the trailing source map reference line is removed (`npm run vendor`).
 

@@ -1,6 +1,6 @@
 {
   "name": "markdown-trellis-clip",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "MarkdownTrellis Clip: Markdownを貼って、整えて、コピー。",
   "type": "module",
@@ -14,7 +14,8 @@
   "devDependencies": {
     "dompurify": "3.4.17",
     "jsdom": "31.0.0",
-    "marked": "18.1.3"
+    "marked": "18.1.3",
+    "turndown": "7.2.5"
   },
   "engines": {
     "node": ">=22"

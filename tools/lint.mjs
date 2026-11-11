@@ -24,7 +24,7 @@ const manifest = JSON.parse(readFileSync(join(ext, "manifest.json"), "utf8"));
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 if (manifest.manifest_version !== 3) fail(join(ext, "manifest.json"), "manifest_version は 3 にする");
 if (manifest.version !== pkg.version) fail(join(ext, "manifest.json"), `version ${manifest.version} が package.json ${pkg.version} と一致しない`);
-// 権限は追加構文の既定値を保存する storage だけ（理由はPROJECT）
+// 権限は設定（追加構文の既定値・書式付きテキストの貼り付け）を保存する storage だけ（理由はPROJECT）
 if (JSON.stringify(manifest.permissions ?? []) !== JSON.stringify(["storage"])) {
   fail(join(ext, "manifest.json"), `permissions は ["storage"] だけにする（現在 ${JSON.stringify(manifest.permissions ?? [])}）`);
 }
@@ -45,7 +45,9 @@ const html = readFileSync(join(ext, "editor.html"), "utf8");
 const vendorVersion = (file, pattern) => pattern.exec(readFileSync(join(ext, "vendor", file), "utf8"))?.[1];
 const markedVersion = vendorVersion("marked.esm.js", /marked v(\d+\.\d+\.\d+)/u);
 const purifyVersion = vendorVersion("purify.es.mjs", /DOMPurify (\d+\.\d+\.\d+)/u);
-for (const [name, version] of [["marked", markedVersion], ["DOMPurify", purifyVersion]]) {
+// Turndown の配布ファイルには版の表記がないので、package.json の版を使う（中身の一致は vendor.mjs --verify で確認する）
+const turndownVersion = pkg.devDependencies?.turndown;
+for (const [name, version] of [["marked", markedVersion], ["DOMPurify", purifyVersion], ["Turndown", turndownVersion]]) {
   if (!html.includes(`${name} ${version}`)) fail(join(ext, "editor.html"), `アプリ情報の ${name} の版が同梱の ${version} と一致しない`);
   const notices = readFileSync(join(ext, "licenses", "THIRD_PARTY_NOTICES.txt"), "utf8");
   if (!notices.includes(`${name} ${version}`)) fail(join(ext, "licenses", "THIRD_PARTY_NOTICES.txt"), `${name} ${version} の記載がない`);
@@ -66,12 +68,15 @@ for (const file of ownCode) {
   if (type === ".js" || type === ".mjs") {
     const isSettings = file === join(ext, "settings.js");
     for (const [pattern, message] of rules) {
-      // settings.js だけは chrome.storage を使う（保存するのは defaultFeatures だけ。下で確認する）
-      const checked = isSettings ? text.replace(/chrome\.storage\.local\.(?:get|set)\(/gu, "") : text;
+      // settings.js だけは chrome.storage を使う（保存するのは defaultFeatures と pasteHtml だけ。下で確認する）
+      const checked = isSettings ? text.replace(/chrome\.storage\.(?:local\.(?:get|set)|onChanged\.addListener)\(/gu, "") : text;
       if (pattern.test(checked)) fail(file, message);
     }
-    if (isSettings && !/const KEY = "defaultFeatures";/u.test(text)) {
-      fail(file, "保存するキーは defaultFeatures だけにする");
+    if (isSettings) {
+      const keys = [...text.matchAll(/const [A-Z_]+ = "([^"]+)";/gu)].map((m) => m[1]).sort();
+      if (JSON.stringify(keys) !== JSON.stringify(["defaultFeatures", "pasteHtml"])) {
+        fail(file, `保存するキーは defaultFeatures と pasteHtml だけにする（現在 ${JSON.stringify(keys)}）`);
+      }
     }
   }
   if (type === ".html") {
