@@ -41,12 +41,15 @@ const state = {
   toastTimer: 0,
   features: [], // このタブで有効な追加構文
   pasteHtml: false, // 書式付きテキスト（HTML）を Markdown に変換して貼り付けるか（保存した設定。初期値 OFF）
+  pasteHintDismissed: false, // 書式の取り込みの案内を、このタブで閉じたか
 };
 
 localize();
 bindSource(source);
 bindCommands();
 updateEmptyState();
+updatePasteStatus();
+setSourceVisible(true);
 source.focus();
 
 // 追加構文の既定値を読む（読む前に入力があれば、読んだ後に表示し直す）
@@ -58,12 +61,8 @@ loadDefaultFeatures().then((features) => {
 });
 
 // 書式付きテキストの貼り付けの設定を読む。別のタブで変えたときも、次の貼り付けから反映する
-loadPasteHtml().then((enabled) => {
-  state.pasteHtml = enabled;
-});
-watchPasteHtml((enabled) => {
-  state.pasteHtml = enabled;
-});
+loadPasteHtml().then(setPasteHtml);
+watchPasteHtml(setPasteHtml);
 
 // 戻る・進むのキャッシュから表示し直された場合も、前の内容を残さない
 window.addEventListener("pageshow", (event) => {
@@ -71,6 +70,17 @@ window.addEventListener("pageshow", (event) => {
     resetWorkspace();
   }
 });
+
+// 本文があるときにタブを閉じる・再読み込みする場合は、Chrome の確認を出す（本文は保存しないため）
+window.addEventListener("beforeunload", (event) => {
+  if (source.value !== "") {
+    event.preventDefault();
+    event.returnValue = "";
+  }
+});
+
+// 選択範囲のコピーは、編集欄で範囲を選択しているときだけ押せるようにする
+document.addEventListener("selectionchange", updateSelectionButton);
 
 function localize() {
   document.documentElement.lang = chrome.i18n.getUILanguage().toLowerCase().startsWith("ja") ? "ja" : "en";
@@ -105,6 +115,9 @@ function bindSource(el) {
     }
     onSourceChanged();
   });
+  for (const type of ["select", "keyup", "mouseup"]) {
+    el.addEventListener(type, updateSelectionButton);
+  }
   // 設定が ON で、書式付きテキストを Markdown にできるときだけ、標準の貼り付けの代わりに変換結果を入れる（Undo 1回で戻る）
   el.addEventListener("paste", (event) => {
     const markdown = convertPaste(event.clipboardData);
@@ -140,6 +153,12 @@ function bindCommands() {
   $("about").addEventListener("click", () => $("aboutDialog").showModal());
   $("openSyntax").addEventListener("click", openSyntaxDialog);
   $("openPaste").addEventListener("click", openPasteDialog);
+  $("pasteStatus").addEventListener("click", openPasteDialog);
+  $("pasteFromHint").addEventListener("click", openPasteDialog);
+  $("closePasteHint").addEventListener("click", () => {
+    state.pasteHintDismissed = true;
+    $("pasteHint").hidden = true;
+  });
   $("syntaxFromBanner").addEventListener("click", openSyntaxDialog);
   $("presetGitHub").addEventListener("click", () => setDialogFeatures(GITHUB_PRESET));
   $("clearFeatures").addEventListener("click", () => setDialogFeatures([]));
@@ -218,12 +237,17 @@ function bindCommands() {
  * null のときは変換せず、これまでどおり text/plain を貼り付ける（書式がない・Markdown の原文がある・長い・変換できない）。
  */
 function convertPaste(data) {
-  if (!state.pasteHtml || !data) {
+  if (!data) {
+    return null;
+  }
+  if (!state.pasteHtml) {
+    maybeShowPasteHint(data);
     return null;
   }
   const plain = data.getData("text/plain");
   const result = choosePaste({ html: data.getData("text/html"), plain }, { DOMParser: window.DOMParser });
   if (result.kind === "markdown") {
+    toast(t("pasteConverted"));
     return result.text;
   }
   if (result.reason === "too-long" && plain !== "") {
@@ -232,6 +256,38 @@ function convertPaste(data) {
     toast(t("pasteFailed"), { error: true });
   }
   return null;
+}
+
+/**
+ * 設定が OFF で、書式を取り込めたはずの内容を貼り付けたときに、設定があることを案内する（このタブで閉じるまで）。
+ * 判定は変換と同じ処理で行い、貼り付ける内容は変えない（text/plain のまま）。
+ */
+function maybeShowPasteHint(data) {
+  if (state.pasteHintDismissed || !$("pasteHint").hidden) {
+    return;
+  }
+  const result = choosePaste({ html: data.getData("text/html"), plain: data.getData("text/plain") }, { DOMParser: window.DOMParser });
+  if (result.kind === "markdown") {
+    $("pasteHint").hidden = false;
+  }
+}
+
+function setPasteHtml(enabled) {
+  state.pasteHtml = enabled;
+  updatePasteStatus();
+  if (enabled) {
+    $("pasteHint").hidden = true;
+  }
+}
+
+function updatePasteStatus() {
+  $("pasteStatus").textContent = t("pasteStatus", state.pasteHtml ? t("pasteOn") : t("pasteOff"));
+  $("pasteStatus").classList.toggle("on", state.pasteHtml);
+}
+
+function updateSelectionButton() {
+  const open = workspace.classList.contains("source-open");
+  $("copySelection").disabled = !open || source.selectionStart === source.selectionEnd;
 }
 
 function isEditable(target) {
@@ -353,7 +409,7 @@ function openPasteDialog() {
       return;
     }
     const enabled = $("pasteHtml").checked;
-    state.pasteHtml = enabled;
+    setPasteHtml(enabled);
     try {
       await savePasteHtml(enabled);
       toast(t("pasteSaved"));
@@ -401,7 +457,13 @@ function applyFormat(command) {
 
 function setSourceVisible(visible) {
   workspace.classList.toggle("source-open", visible);
-  toggleSourceButton.setAttribute("aria-pressed", String(visible));
+  // ボタンには「押すとどうなるか」を表示する（編集欄を閉じてプレビューを広げる／編集欄を戻す）
+  const label = visible ? t("hideSource") : t("showSource");
+  $("toggleSourceLabel").textContent = label;
+  toggleSourceButton.setAttribute("aria-label", label);
+  toggleSourceButton.setAttribute("aria-expanded", String(visible));
+  toggleSourceButton.title = visible ? t("hideSourceTitle") : t("showSourceTitle");
+  updateSelectionButton();
 }
 
 function onSourceChanged() {
@@ -519,6 +581,32 @@ function toast(message, { error = false } = {}) {
   }, error ? 6000 : 3000);
 }
 
+/**
+ * コピーできたことを、押したボタン自体の表示（✓ コピーしました）で知らせる。
+ * 補足があるときだけ通知も出す。画面読み上げには通知の代わりに読み上げ用の領域で伝える。
+ */
+function copied(button, message, notes = []) {
+  clearTimeout(button.copiedTimer);
+  if (!button.classList.contains("copied")) {
+    button.style.minWidth = `${button.offsetWidth}px`;
+  }
+  button.dataset.done = `✓ ${t("copied")}`;
+  button.classList.add("copied");
+  button.copiedTimer = setTimeout(() => {
+    button.classList.remove("copied");
+    button.style.minWidth = "";
+  }, 1600);
+  if (notes.length > 0) {
+    toast(t("messageWithNote", message, notes.join(" ")));
+  } else {
+    const announce = $("announce");
+    announce.textContent = "";
+    setTimeout(() => {
+      announce.textContent = message;
+    }, 50);
+  }
+}
+
 async function copyMarkdown() {
   const text = source.value;
   if (text === "") {
@@ -527,7 +615,7 @@ async function copyMarkdown() {
   }
   try {
     await navigator.clipboard.writeText(text);
-    toast(t("copiedMarkdown"));
+    copied($("copyMarkdown"), t("copiedMarkdown"));
   } catch {
     toast(t("copyFailed"), { error: true });
   }
@@ -539,27 +627,23 @@ async function copyRich() {
     toast(t("nothingToCopy"));
     return;
   }
-  await writeFormatted(() => renderer.renderDocument(text, { unwrapFence: state.unwrapFence, features: state.features }), t("copiedRich"));
+  await writeFormatted(() => renderer.renderDocument(text, { unwrapFence: state.unwrapFence, features: state.features }), $("copyRich"), t("copiedRich"));
 }
 
 async function copySelection() {
-  if (!workspace.classList.contains("source-open")) {
-    toast(t("selectionNeedsSource"));
-    return;
-  }
   const start = source.selectionStart;
   const end = source.selectionEnd;
   const text = source.value;
-  if (start === end || text.slice(start, end).trim() === "") {
+  if (!workspace.classList.contains("source-open") || start === end || text.slice(start, end).trim() === "") {
     toast(t("selectionRequired"));
     return;
   }
   const note = usesOutsideDefinitions(text, start, end, state.features) ? t("selectionOutside") : "";
-  await writeFormatted(() => renderer.renderSelection(text, start, end, state.features), t("copiedSelection"), note);
+  await writeFormatted(() => renderer.renderSelection(text, start, end, state.features), $("copySelection"), t("copiedSelection"), note);
 }
 
 /** 書式付きの HTML と、描画後の内容に対応するプレーンテキストを同時に書き込む。 */
-async function writeFormatted(render, successMessage, extraNote = "") {
+async function writeFormatted(render, button, successMessage, extraNote = "") {
   let payload;
   try {
     payload = toClipboardPayload(render().fragment);
@@ -589,7 +673,7 @@ async function writeFormatted(render, successMessage, extraNote = "") {
   if (extraNote !== "") {
     notes.push(extraNote);
   }
-  toast(notes.length > 0 ? t("messageWithNote", successMessage, notes.join(" ")) : successMessage);
+  copied(button, successMessage, notes);
 }
 
 function downloadMarkdown() {
@@ -644,6 +728,7 @@ function resetWorkspace() {
   scroller.scrollTop = 0;
   $("fenceBanner").hidden = true;
   $("syntaxBanner").hidden = true;
+  $("pasteHint").hidden = true;
   hideStatus();
   setSourceVisible(true);
   updateEmptyState();

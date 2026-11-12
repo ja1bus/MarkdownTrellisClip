@@ -149,6 +149,7 @@ const cdp = new Cdp(child);
 const consoleProblems = [];
 const externalRequests = [];
 const dialogs = [];
+const beforeUnloads = []; // 本文があるときの離脱確認（beforeunload）。試験では自動で「離れる」を選ぶ
 
 cdp.on((message) => {
   const { method, params } = message;
@@ -164,7 +165,12 @@ cdp.on((message) => {
       externalRequests.push(url);
     }
   } else if (method === "Page.javascriptDialogOpening") {
-    dialogs.push(params.message);
+    if (params.type === "beforeunload") {
+      beforeUnloads.push(message.sessionId);
+      cdp.send("Page.handleJavaScriptDialog", { accept: true }, message.sessionId).catch(() => {});
+    } else {
+      dialogs.push(params.message);
+    }
   }
 });
 
@@ -325,14 +331,21 @@ try {
       focused: document.activeElement === document.getElementById('source'),
       placeholder: document.getElementById('source').placeholder,
       hint: getComputedStyle(document.getElementById('emptyHint')).display,
-      privacy: document.querySelector('.privacy').textContent,
+      privacy: document.querySelector('.privacy [data-i18n=notSaved]').textContent,
       lang: document.documentElement.lang,
-      title: document.getElementById('copyRich').textContent,
+      title: document.querySelector('#copyRich .label-long').textContent,
+      toggle: document.getElementById('toggleSource').textContent,
+      pasteStatus: document.getElementById('pasteStatus').textContent,
+      selectionDisabled: document.getElementById('copySelection').disabled,
+      emptyTitle: document.querySelector('#emptyHint .empty-title').textContent,
     })`);
     assert(s.empty && s.open && s.focused, `状態: ${JSON.stringify(s)}`);
     assert(s.hint !== "none", "空のときの案内が見えない");
     assert(s.lang === lang, `lang=${s.lang}`);
-    assert(lang === "ja" ? s.privacy === "内容は保存されません" && s.title === "書式付きコピー" : s.privacy === "Content is not saved" && s.title === "Copy Formatted", `表示: ${JSON.stringify(s)}`);
+    assert(s.selectionDisabled, "未選択なのに選択範囲のコピーが押せる");
+    assert(lang === "ja"
+      ? s.privacy === "本文は自動保存されません" && s.title === "書式付きでコピー" && s.toggle === "プレビューを広げる" && s.pasteStatus === "書式の取り込み：オフ" && s.emptyTitle === "プレビュー"
+      : s.privacy === "Text is not saved automatically" && s.title === "Copy Formatted" && s.toggle === "Expand Preview" && s.pasteStatus === "Formatted paste: Off" && s.emptyTitle === "Preview", `表示: ${JSON.stringify(s)}`);
     await page.screenshot("01-empty");
   });
 
@@ -424,6 +437,10 @@ try {
     assert(lf(clip["text/plain"]) === text, `コピーした内容が原文と一致しない: ${JSON.stringify(clip)} / 原文 ${JSON.stringify(await page.value())}`);
     assert(!("text/html" in clip), "text/html も書き込まれている");
     assert(!(await page.toast()).startsWith("ERROR"), "失敗の通知が出た");
+    const done = await page.eval("({ copied: document.getElementById('copyMarkdown').classList.contains('copied'), mark: document.getElementById('copyMarkdown').dataset.done, announce: document.getElementById('announce').textContent })");
+    assert(done.copied && done.mark === (lang === "ja" ? "✓ コピーしました" : "✓ Copied") && done.announce === (lang === "ja" ? "Markdownをコピーしました" : "Markdown copied"), `コピーした表示: ${JSON.stringify(done)}`);
+    await sleep(1800);
+    assert(!(await page.eval("document.getElementById('copyMarkdown').classList.contains('copied')")), "コピーした表示が元に戻らない");
   });
 
   await check("全文フェンス: 検出を表示し、プレビューと書式付きコピーだけ外側を除外する", async () => {
@@ -468,19 +485,22 @@ try {
     assert(await page.value() === text, "原文が変わった");
   });
 
-  await check("選択範囲を書式付きコピー: 未選択では案内してクリップボードを変えず、選択は断片として変換する", async () => {
+  await check("選択範囲を書式付きコピー: 未選択では押せずクリップボードを変えず、選択は断片として変換する", async () => {
     await page.setClipboard("SENTINEL");
     await page.eval("(() => { const s = document.getElementById('source'); s.focus(); s.setSelectionRange(3, 3); })()");
+    await sleep(100);
+    assert(await page.eval("document.getElementById('copySelection').disabled"), "未選択なのに押せる");
     await page.click("#copySelection");
     await sleep(200);
     let clip = await page.readClipboard();
     assert(clip["text/plain"] === "SENTINEL", "未選択なのにクリップボードが変わった");
-    assert((await page.toast()).length > 0, "未選択の案内がない");
     const text = "```markdown\n# 題\n本文 **強調** [参照][r]\n```\n\n[r]: https://example.com";
     await page.eval(`(() => { const s = document.getElementById('source'); s.select(); document.execCommand('insertText', false, ${JSON.stringify(text)}); })()`);
     const start = text.indexOf("本文");
     const end = text.indexOf("\n```");
     await page.eval(`document.getElementById('source').setSelectionRange(${start}, ${end})`);
+    await sleep(100);
+    assert(!(await page.eval("document.getElementById('copySelection').disabled")), "選択しても押せない");
     await page.click("#copySelection");
     await sleep(200);
     clip = await page.readClipboard();
@@ -605,13 +625,24 @@ try {
     await page2.screenshot("05-cleared");
   });
 
-  await check("再読み込み・タブを閉じた後に本文が復元されない", async () => {
+  await check("再読み込み・タブを閉じた後に本文が復元されない（本文があれば離脱の確認を出す）", async () => {
     await page2.eval("(() => { const s = document.getElementById('source'); s.focus(); document.execCommand('insertText', false, '再読み込みで消える本文'); })()");
+    const asked = beforeUnloads.length;
     await page2.send("Page.reload", {});
     await sleep(300);
     await page2.waitReady();
     await sleep(300);
     assert(await page2.value() === "", "再読み込み後に本文が残っている");
+    assert(beforeUnloads.length === asked + 1, `本文があるのに離脱の確認が出ない（${beforeUnloads.length - asked} 回）`);
+    // 本文が空なら確認を出さない（確認は操作の後だけ出るので、操作してから試す）
+    await page2.click("#source");
+    const asked2 = beforeUnloads.length;
+    await page2.send("Page.reload", {});
+    await sleep(300);
+    await page2.waitReady();
+    assert(beforeUnloads.length === asked2, "本文が空なのに離脱の確認が出た");
+    // 実際の入力と同じく操作してから入れる（操作のないページでは Chrome が確認を出さず、エラーを記録する）
+    await page2.click("#source");
     await page2.eval("(() => { const s = document.getElementById('source'); s.focus(); document.execCommand('insertText', false, '閉じると消える本文'); })()");
     await page2.send("Page.navigate", { url: "about:blank" });
     await sleep(300);
@@ -711,14 +742,27 @@ try {
     // 初期値は OFF: HTML があっても text/plain を貼る
     await pasteWith(copilotPlain, copilotHtml);
     assert(await val() === copilotPlain, `OFF で text/plain にならない: ${await val()}`);
+    // OFF で書式付きテキストを貼ると、取り込めることを案内する。閉じるとこのタブでは出さない
+    assert(!(await p.eval("document.getElementById('pasteHint').hidden")), "OFF で書式付きテキストを貼っても案内が出ない");
+    await p.screenshot("14-paste-hint");
+    await p.click("#closePasteHint");
+    await clear();
+    await pasteWith(copilotPlain, copilotHtml);
+    assert(await p.eval("document.getElementById('pasteHint').hidden"), "閉じた案内がまた出た");
+    // 書式の取り込みの表示から設定を開ける
+    await p.click("#pasteStatus");
+    await sleep(100);
+    assert(await p.eval("document.getElementById('pasteDialog').open"), "書式の取り込みの表示から設定が開かない");
+    await p.click("#pasteDialog button[value='cancel']");
+    await sleep(100);
     await p.click("#settingsMenuButton");
     await p.click("#openPaste");
     await sleep(100);
     let s = await p.eval("({ open: document.getElementById('pasteDialog').open, checked: document.getElementById('pasteHtml').checked, text: document.getElementById('pasteDialog').textContent })");
     assert(s.open && !s.checked, `初期値が OFF でない: ${JSON.stringify(s)}`);
     assert(lang === "ja"
-      ? s.text.includes("書式付きテキストの貼り付け") && s.text.includes("HTML形式の書式付きテキストを貼り付けるとき、自動的にMarkdownへ変換します。")
-      : s.text.includes("Paste formatted text") && s.text.includes("convert it to Markdown automatically"), `表示: ${s.text}`);
+      ? s.text.includes("書式付きテキストをMarkdownに変換する") && s.text.includes("オフの場合は、書式を取り込まず文字だけ貼り付けます。") && s.text.includes("設定を保存")
+      : s.text.includes("Convert formatted text to Markdown") && s.text.includes("only the text is pasted") && s.text.includes("Save settings"), `表示: ${s.text}`);
     // キャンセルでは変わらない
     await p.click("#pasteHtml");
     await p.click("#pasteDialog button[value='cancel']");
@@ -736,11 +780,13 @@ try {
     const stored = await p.eval("chrome.storage.local.get(null)");
     assert(stored.pasteHtml === true && JSON.stringify(stored.defaultFeatures) === JSON.stringify(["alerts"]) && Object.keys(stored).length === 2, `保存内容: ${JSON.stringify(stored)}`);
     assert((await p.toast()) === (lang === "ja" ? "貼り付けの設定を保存しました" : "Paste settings saved"), `通知: ${await p.toast()}`);
+    assert((await p.eval("document.getElementById('pasteStatus').textContent")) === (lang === "ja" ? "書式の取り込み：オン" : "Formatted paste: On"), "書式の取り込みの表示が ON にならない");
 
     // ON: Copilot の HTML を Markdown に変換する（Chrome のクリップボードを通しても日本語が壊れない）
     await clear();
     await pasteWith(copilotPlain, copilotHtml);
     assert(await val() === expected, `変換結果:\n${await val()}`);
+    assert((await p.toast()) === (lang === "ja" ? "書式付きテキストをMarkdownに変換して貼り付けました" : "Formatted text was converted to Markdown and pasted"), `変換の通知: ${await p.toast()}`);
     const html = await p.eval("document.getElementById('preview').innerHTML");
     for (const part of ["<h2>導入の手順</h2>", "<strong>3つ</strong>", "<th>内容（Description）</th>", "1行目<br>2行目", "<td>A|B</td>", "href=\"https://example.com/doc\"", "<strong>Outlook</strong>"]) {
       assert(html.includes(part), `プレビューに ${part} がない`);
@@ -816,7 +862,7 @@ try {
     await clear();
     await pasteWith("上限を超える回答", `<ul>${rows}${rows}</ul>`);
     assert(await val() === "上限を超える回答", `上限を超えたとき: ${(await val()).slice(0, 80)}`);
-    assert((await p.toast()).includes(lang === "ja" ? "書式を変換せずに" : "without converting"), `上限を超えたときの案内: ${await p.toast()}`);
+    assert((await p.toast()).includes(lang === "ja" ? "書式を取り込まずに" : "without its formatting"), `上限を超えたときの案内: ${await p.toast()}`);
 
     // ブラウザーで表示した HTML を選んでコピー（Chrome が作る実際のコピーの HTML）。取り消し線 S01〜S10・表・複合書式
     // （2026-11-11 利用者の試験で、親要素の CSS の取り消し線 S07 が失われた不具合の回帰確認）
@@ -869,6 +915,19 @@ try {
     assert(after.pasteHtml === false && JSON.stringify(after.defaultFeatures) === JSON.stringify(["alerts"]), `保存内容: ${JSON.stringify(after)}`);
     // 後の確認のため、ON に戻しておく（拡張の再起動後に保持されるかを最後に確かめる）。既定値は空に戻す
     await q.eval("chrome.storage.local.clear().then(() => chrome.storage.local.set({ pasteHtml: true }))");
+  });
+
+  await check("表示の切り替え: プレビューを広げると編集欄を閉じ、ボタンの表記が変わる", async () => {
+    const p = await openEditor();
+    await p.eval("(() => { const s = document.getElementById('source'); s.focus(); document.execCommand('insertText', false, '# 見出し'); s.select(); })()");
+    await sleep(400);
+    await p.click("#toggleSource");
+    let s = await p.eval("({ open: document.getElementById('workspace').classList.contains('source-open'), label: document.getElementById('toggleSource').textContent, aria: document.getElementById('toggleSource').getAttribute('aria-expanded'), selection: document.getElementById('copySelection').disabled, pane: getComputedStyle(document.getElementById('sourcePane')).display })");
+    assert(!s.open && s.pane === "none" && s.aria === "false" && s.selection && s.label === (lang === "ja" ? "編集欄を表示" : "Show Editor"), `閉じた状態: ${JSON.stringify(s)}`);
+    await p.screenshot("15-preview-only");
+    await p.click("#toggleSource");
+    s = await p.eval("({ open: document.getElementById('workspace').classList.contains('source-open'), label: document.getElementById('toggleSource').textContent, focus: document.activeElement.id })");
+    assert(s.open && s.focus === "source" && s.label === (lang === "ja" ? "プレビューを広げる" : "Expand Preview"), `開いた状態: ${JSON.stringify(s)}`);
   });
 
   await check("メニュー: キーボードで開いて選べ、Escで閉じる", async () => {
@@ -941,6 +1000,8 @@ try {
     await sleep(200);
     const narrow = await p.eval("(() => { const s = document.getElementById('sourcePane').getBoundingClientRect(); const v = document.querySelector('.preview-pane').getBoundingClientRect(); return { stacked: v.top >= s.bottom - 1, w: s.width }; })()");
     assert(narrow.stacked, `縦配置になっていない: ${JSON.stringify(narrow)}`);
+    const bar = await p.eval("(() => { const shown = (sel) => getComputedStyle(document.querySelector(sel)).display !== 'none'; const tops = [...document.querySelectorAll('.actions button:not([role=menuitem])')].filter((b) => b.offsetParent).map((b) => Math.round(b.getBoundingClientRect().top)); return { short: shown('#copyRich .label-short'), long: shown('#copyRich .label-long'), rows: new Set(tops).size }; })()");
+    assert(bar.short && !bar.long && bar.rows === 1, `狭い画面の操作バー: ${JSON.stringify(bar)}`);
     await p.screenshot("06-narrow");
     await p.send("Emulation.clearDeviceMetricsOverride", {});
     await p.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "light" }] });
@@ -963,11 +1024,12 @@ try {
     assert(s.open, "アプリ情報が開かない");
     const expected = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
     assert(s.version === expected && s.text.includes(expected) && s.text.includes("MarkdownTrellis Clip") && s.text.includes("© ja1bus"), `表示: ${s.text}`);
-    const links = await page2.eval("[...document.querySelectorAll('#aboutDialog .about-license a')].map((a) => a.getAttribute('href'))");
-    assert(s.text.includes("MIT License") && links.includes("https://github.com/ja1bus/MarkdownTrellisClip") && links.includes("LICENSE.txt"), `MIT の表示: ${JSON.stringify(links)}`);
+    const links = await page2.eval("[...document.querySelectorAll('#aboutDialog .about-links a')].map((a) => a.getAttribute('href'))");
+    assert(s.text.includes(lang === "ja" ? "MITライセンス" : "MIT License") && links.includes("https://github.com/ja1bus/MarkdownTrellisClip") && links.includes("LICENSE.txt") && links.includes("licenses/THIRD_PARTY_NOTICES.txt"), `MIT・ライセンス表記のリンク: ${JSON.stringify(links)}`);
     const licenseText = await page2.eval("fetch('LICENSE.txt').then((r) => r.text()).catch(() => '')");
     assert(licenseText === "" || licenseText.includes("MIT License"), "LICENSE.txt の内容");
-    assert(s.text.includes("marked 18.1.3") && s.text.includes("DOMPurify 3.4.17") && s.text.includes("Turndown 7.2.5"), "ライブラリの表記がない");
+    const notices = await page2.eval("fetch('licenses/THIRD_PARTY_NOTICES.txt').then((r) => r.text())");
+    assert(notices.includes("marked 18.1.3") && notices.includes("DOMPurify 3.4.17") && notices.includes("Turndown 7.2.5"), "ライセンス表記にライブラリの版がない");
     await page2.screenshot("08-about");
     const probe = await page2.eval("fetch('https://example.com/connect-probe').then(() => 'fetched', () => 'blocked')");
     assert(probe === "blocked", "connect-src が効いていない（外部へ fetch できた）");

@@ -15,16 +15,18 @@
       <img src="icons/icon-32.png" alt="" width="20" height="20">
       <span>MarkdownTrellis Clip</span>
     </div>
-    <span class="privacy" data-i18n="notSaved" data-i18n-title="notSavedDetail"></span>
+    <span class="privacy" data-i18n-title="notSavedDetail"><span data-i18n="notSaved"></span><span class="visually-hidden" data-i18n="notSavedDetail"></span></span>
     <div class="actions" role="toolbar" data-i18n-aria="appName">
-      <button type="button" id="toggleSource" class="toggle" aria-pressed="true" aria-controls="sourcePane" data-i18n="toggleSource" data-i18n-title="toggleSourceTitle"></button>
+      <div class="copy-group">
+        <button type="button" id="copyMarkdown" class="copy" data-i18n-title="copyMarkdownTitle"><svg class="narrow-only" viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8.5" rx="1.2"/><path d="M10.5 5.5V3.2c0-.7-.5-1.2-1.2-1.2H3.7c-.7 0-1.2.5-1.2 1.2v6.6c0 .7.5 1.2 1.2 1.2h1.8"/></svg><span class="label-long" data-i18n="copyMarkdown"></span><span class="label-short" data-i18n="copyMarkdownShort"></span></button>
+        <button type="button" id="copyRich" class="copy" data-i18n-title="copyRichTitle"><svg class="narrow-only" viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8.5" rx="1.2"/><path d="M10.5 5.5V3.2c0-.7-.5-1.2-1.2-1.2H3.7c-.7 0-1.2.5-1.2 1.2v6.6c0 .7.5 1.2 1.2 1.2h1.8"/></svg><span class="label-long" data-i18n="copyRich"></span><span class="label-short" data-i18n="copyRichShort"></span></button>
+        <button type="button" id="copySelection" class="quiet" disabled data-i18n-title="copySelectionTitle"><span class="label-long" data-i18n="copySelection"></span><span class="label-short" data-i18n="copySelectionShort"></span></button>
+      </div>
       <span class="sep" aria-hidden="true"></span>
-      <button type="button" id="copyMarkdown" data-i18n="copyMarkdown" data-i18n-title="copyMarkdownTitle"></button>
-      <button type="button" id="copyRich" class="primary" data-i18n="copyRich" data-i18n-title="copyRichTitle"></button>
-      <button type="button" id="copySelection" data-i18n="copySelection" data-i18n-title="copySelectionTitle"></button>
+      <button type="button" id="download" class="quiet" data-i18n-title="downloadTitle" data-i18n-aria="download"><svg class="narrow-only" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5v8M4.8 7.5 8 10.7l3.2-3.2M2.5 13.5h11"/></svg><span class="label-long" data-i18n="download"></span></button>
+      <button type="button" id="clear" class="quiet" data-i18n-title="clearTitle" data-i18n-aria="clear"><svg class="narrow-only" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M6.2 4V2.6h3.6V4M4 4l.7 9.4h6.6L12 4"/></svg><span class="label-long" data-i18n="clear"></span></button>
       <span class="sep" aria-hidden="true"></span>
-      <button type="button" id="download" data-i18n="download" data-i18n-title="downloadTitle"></button>
-      <button type="button" id="clear" data-i18n="clear" data-i18n-title="clearTitle"></button>
+      <button type="button" id="toggleSource" class="quiet view-toggle" aria-controls="sourcePane"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.8" y="2.8" width="12.4" height="10.4" rx="1.4"/><path d="M6.5 2.8v10.4"/></svg><span id="toggleSourceLabel" class="label-long"></span></button>
       <div class="menu-wrap">
         <button type="button" id="settingsMenuButton" class="menu-button icon-button" aria-haspopup="menu" aria-expanded="false" aria-controls="settingsMenu" data-i18n-title="settingsMenu" data-i18n-aria="settingsMenu">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.9 1.5h2.2l.4 1.8 1.2.5 1.6-1 1.5 1.5-1 1.6.5 1.2 1.8.4v2.2l-1.8.4-.5 1.2 1 1.6-1.5 1.5-1.6-1-1.2.5-.4 1.8H6.9l-.4-1.8-1.2-.5-1.6 1-1.5-1.5 1-1.6-.5-1.2-1.8-.4V6.9l1.8-.4.5-1.2-1-1.6 1.5-1.5 1.6 1 1.2-.5z"/><circle cx="8" cy="8" r="2"/></svg>
@@ -68,6 +70,7 @@
             <button type="button" role="menuitem" data-format="hr" data-i18n="fmtHr"></button>
           </div>
         </div>
+        <button type="button" id="pasteStatus" class="paste-status" data-i18n-title="pasteStatusTitle"></button>
       </div>
       <textarea id="source" class="source" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" wrap="soft" data-i18n-placeholder="sourcePlaceholder" data-i18n-aria="sourceLabel"></textarea>
     </section>
@@ -80,6 +83,11 @@
       <div id="syntaxBanner" class="banner" hidden>
         <span id="syntaxMessage"></span>
         <button type="button" id="syntaxFromBanner" data-i18n="syntaxMenu"></button>
+      </div>
+      <div id="pasteHint" class="banner" hidden>
+        <span data-i18n="pasteHint"></span>
+        <button type="button" id="pasteFromHint" data-i18n="pasteMenu"></button>
+        <button type="button" id="closePasteHint" class="banner-close" data-i18n-title="closeHint" data-i18n-aria="closeHint">×</button>
       </div>
       <div id="previewStatus" class="banner status" hidden>
         <span id="previewStatusText"></span>
@@ -96,6 +104,7 @@
   </main>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <div id="announce" class="visually-hidden" role="status" aria-live="polite"></div>
 
   <dialog id="clearDialog" class="dialog" aria-labelledby="clearDialogTitle">
     <form method="dialog">
@@ -123,45 +132,44 @@
       </div>
       <label class="save-default"><input type="checkbox" id="saveDefault"><span data-i18n="saveDefault"></span></label>
       <div class="dialog-actions">
-        <button type="submit" value="ok" class="primary" data-i18n="ok"></button>
         <button type="button" id="presetGitHub" data-i18n="presetGitHub"></button>
         <button type="button" id="clearFeatures" data-i18n="clearFeatures"></button>
+        <span class="spacer"></span>
         <button type="submit" value="cancel" data-i18n="cancel"></button>
+        <button type="submit" value="ok" class="primary" data-i18n="ok"></button>
       </div>
     </form>
   </dialog>
 
-  <dialog id="pasteDialog" class="dialog syntax-dialog" aria-labelledby="pasteDialogTitle">
+  <dialog id="pasteDialog" class="dialog paste-dialog" aria-labelledby="pasteDialogTitle">
     <form method="dialog">
       <h2 id="pasteDialogTitle" data-i18n="pasteTitle"></h2>
+      <label class="paste-option"><input type="checkbox" id="pasteHtml"><span><b data-i18n="pasteHtml"></b>
+        <small data-i18n="pasteHtmlHelp"></small></span></label>
       <p class="dialog-note" data-i18n="pasteNote"></p>
-      <div class="syntax-list">
-        <label><input type="checkbox" id="pasteHtml"><span><b data-i18n="pasteHtml"></b><small data-i18n="pasteHtmlHelp"></small></span></label>
-      </div>
       <div class="dialog-actions">
-        <button type="submit" value="ok" class="primary" data-i18n="ok"></button>
         <button type="submit" value="cancel" data-i18n="cancel"></button>
+        <button type="submit" value="ok" class="primary" data-i18n="saveSettings"></button>
       </div>
     </form>
   </dialog>
 
-  <dialog id="aboutDialog" class="dialog" aria-labelledby="aboutDialogTitle">
+  <dialog id="aboutDialog" class="dialog about-dialog" aria-labelledby="aboutDialogTitle">
     <form method="dialog">
-      <h2 id="aboutDialogTitle">MarkdownTrellis Clip</h2>
+      <div class="about-head">
+        <img src="icons/icon-48.png" alt="" width="40" height="40">
+        <div>
+          <h2 id="aboutDialogTitle">MarkdownTrellis Clip</h2>
+          <p class="about-meta"><span id="aboutVersion"></span> · © ja1bus</p>
+        </div>
+      </div>
       <p class="about-description" data-i18n="appDescription"></p>
-      <p id="aboutVersion"></p>
-      <p>© ja1bus</p>
-      <p class="about-license"><span data-i18n="licenseMit"></span>
-        <a href="https://github.com/ja1bus/MarkdownTrellisClip" target="_blank" rel="noopener" data-i18n="sourceCode"></a>
-        <a href="LICENSE.txt" target="_blank" rel="noopener" data-i18n="licenseText"></a></p>
       <p class="about-privacy" data-i18n="aboutPrivacy"></p>
-      <h3 data-i18n="thirdParty"></h3>
-      <ul class="about-licenses">
-        <li>marked 18.1.3 — MIT License</li>
-        <li>DOMPurify 3.4.17 — Apache License 2.0 / Mozilla Public License 2.0</li>
-        <li>Turndown 7.2.5 — MIT License</li>
-      </ul>
-      <p><a href="licenses/THIRD_PARTY_NOTICES.txt" target="_blank" rel="noopener" data-i18n="licenseLink"></a></p>
+      <p class="about-links">
+        <a href="https://github.com/ja1bus/MarkdownTrellisClip" target="_blank" rel="noopener" data-i18n="sourceCode"></a>
+        <a href="LICENSE.txt" target="_blank" rel="noopener" data-i18n="licenseText"></a>
+        <a href="licenses/THIRD_PARTY_NOTICES.txt" target="_blank" rel="noopener" data-i18n="licenseLink"></a>
+      </p>
       <div class="dialog-actions">
         <button type="submit" value="close" data-i18n="close" autofocus></button>
       </div>

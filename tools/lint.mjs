@@ -40,15 +40,15 @@ for (const file of files) {
   if (rel.split(/[\\/]/u).some((part) => part.startsWith("_") && part !== "_locales")) fail(file, "先頭が _ の名前はChromeが拒否する");
 }
 
-// 2. 版の表示: about の版は manifest から読む。ライブラリの版は vendor と一致させる
+// 2. 版の表示: about の版は manifest から読む。ライブラリの版は同梱のライセンス表記（アプリ情報からリンク）を vendor と一致させる
 const html = readFileSync(join(ext, "editor.html"), "utf8");
+if (!html.includes('href="licenses/THIRD_PARTY_NOTICES.txt"')) fail(join(ext, "editor.html"), "アプリ情報にライセンス表記へのリンクがない");
 const vendorVersion = (file, pattern) => pattern.exec(readFileSync(join(ext, "vendor", file), "utf8"))?.[1];
 const markedVersion = vendorVersion("marked.esm.js", /marked v(\d+\.\d+\.\d+)/u);
 const purifyVersion = vendorVersion("purify.es.mjs", /DOMPurify (\d+\.\d+\.\d+)/u);
 // Turndown の配布ファイルには版の表記がないので、package.json の版を使う（中身の一致は vendor.mjs --verify で確認する）
 const turndownVersion = pkg.devDependencies?.turndown;
 for (const [name, version] of [["marked", markedVersion], ["DOMPurify", purifyVersion], ["Turndown", turndownVersion]]) {
-  if (!html.includes(`${name} ${version}`)) fail(join(ext, "editor.html"), `アプリ情報の ${name} の版が同梱の ${version} と一致しない`);
   const notices = readFileSync(join(ext, "licenses", "THIRD_PARTY_NOTICES.txt"), "utf8");
   if (!notices.includes(`${name} ${version}`)) fail(join(ext, "licenses", "THIRD_PARTY_NOTICES.txt"), `${name} ${version} の記載がない`);
 }

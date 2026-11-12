@@ -8,50 +8,68 @@
   "actionTitle": {
     "message": "Open MarkdownTrellis Clip"
   },
-  "toggleSource": {
-    "message": "Source"
+  "hideSource": {
+    "message": "Expand Preview"
   },
-  "toggleSourceTitle": {
-    "message": "Show or hide the Markdown source"
+  "hideSourceTitle": {
+    "message": "Close the editor and show the preview across the whole window"
+  },
+  "showSource": {
+    "message": "Show Editor"
+  },
+  "showSourceTitle": {
+    "message": "Open the editor next to the preview"
   },
   "copyMarkdown": {
     "message": "Copy Markdown"
   },
+  "copyMarkdownShort": {
+    "message": "Markdown"
+  },
   "copyMarkdownTitle": {
-    "message": "Copy the source text exactly as it is"
+    "message": "Copy the editor text exactly as it is"
   },
   "copyRich": {
     "message": "Copy Formatted"
   },
+  "copyRichShort": {
+    "message": "Formatted"
+  },
   "copyRichTitle": {
-    "message": "Copy with formatting, for pasting into Teams, email, and similar apps"
+    "message": "Copy with the preview's formatting, for pasting into email, chat, and similar apps"
   },
   "copySelection": {
     "message": "Copy Selection Formatted"
   },
+  "copySelectionShort": {
+    "message": "Selection"
+  },
   "copySelectionTitle": {
-    "message": "Copy only the range selected in the source, with formatting"
+    "message": "Copy only the range selected in the editor, with formatting (available when a range is selected)"
+  },
+  "copied": {
+    "message": "Copied"
   },
   "download": {
     "message": "Download"
   },
   "downloadTitle": {
-    "message": "Download the source as an .md file (the file stays on your PC)"
+    "message": "Download the editor text as an .md file (the file stays on your PC)"
   },
   "clear": {
     "message": "Clear"
   },
   "clearTitle": {
-    "message": "Erase the content and the undo history"
+    "message": "Erase the editor text and the undo history"
   },
   "aboutButton": {
     "message": "About"
   },
   "notSaved": {
-    "message": "Content is not saved"
+    "message": "Text is not saved automatically"
   },
   "notSavedDetail": {
-    "message": "Closing or reloading this tab discards what you entered. Only files you download stay on your PC."
+    "message": "Closing or reloading this tab discards your text. To keep it, copy or download it."
   },
   "formatToolbar": {
     "message": "Formatting"
@@ -90,25 +108,25 @@
     "message": "Code block"
   },
   "sourceLabel": {
-    "message": "Markdown source"
+    "message": "Editor (Markdown)"
   },
   "sourcePlaceholder": {
-    "message": "Paste Markdown here (Ctrl+V), or type"
+    "message": "Paste here (Ctrl+V), or type"
   },
   "previewLabel": {
     "message": "Preview"
   },
   "previewEmpty": {
-    "message": "Press Ctrl+V to paste Markdown"
+    "message": "Preview"
   },
   "previewEmptySub": {
-    "message": "Check Markdown copied from an AI answer or elsewhere, fix it if needed, and copy it with formatting."
+    "message": "Paste or type in the editor, and the formatted result appears here."
   },
   "fenceDetected": {
     "message": "The whole text is wrapped in a Markdown code fence."
   },
   "fenceApplied": {
-    "message": "Showing the content without the outer fence (the source is unchanged)."
+    "message": "Showing the content without the outer fence (the editor text is unchanged)."
   },
   "fenceUnwrap": {
     "message": "Hide outer fence in preview"
@@ -126,7 +144,7 @@
     "message": "Update preview"
   },
   "renderFailed": {
-    "message": "The preview could not be created. Your source is still intact."
+    "message": "The preview could not be created. Your editor text is still intact."
   },
   "removedHtml": {
     "message": "$1 disallowed HTML element(s) are not shown."
@@ -156,10 +174,7 @@
     "message": "There is nothing to copy"
   },
   "selectionRequired": {
-    "message": "Select a range in the source first"
-  },
-  "selectionNeedsSource": {
-    "message": "Show the source and select a range first"
+    "message": "Select a range in the editor first"
   },
   "downloaded": {
     "message": "Downloaded. The file is saved on your PC."
@@ -171,7 +186,7 @@
     "message": "Erase all content?"
   },
   "clearConfirmBody": {
-    "message": "This erases the source, the preview, and the undo history. It cannot be undone."
+    "message": "This erases the editor text, the preview, and the undo history. It cannot be undone."
   },
   "clearConfirm": {
     "message": "Erase"
@@ -186,13 +201,10 @@
     "message": "Version $1"
   },
   "aboutPrivacy": {
-    "message": "Text you enter is handled only inside this tab. It is never saved or sent anywhere. Only your settings are saved: the default on/off state of extra syntax and whether to paste formatted text."
-  },
-  "thirdParty": {
-    "message": "Third-party libraries"
+    "message": "Your text is never saved automatically or sent anywhere. Only your settings are saved (default extra syntax and formatted paste)."
   },
   "licenseLink": {
-    "message": "Open license notices"
+    "message": "Libraries and licenses"
   },
   "close": {
     "message": "Close"
@@ -243,7 +255,7 @@
     "message": "Extra syntax"
   },
   "syntaxIntro": {
-    "message": "Checked syntax is interpreted in this tab's preview and formatted copy. The source is not changed."
+    "message": "Checked syntax is interpreted in this tab's preview and formatted copy. The editor text is not changed."
   },
   "featureAlerts": {
     "message": "Alerts [!NOTE]"
@@ -317,14 +329,11 @@
   "selectionOutside": {
     "message": "Link or footnote definitions outside the selection are not included."
   },
-  "licenseMit": {
-    "message": "This app is released under the MIT License."
-  },
   "sourceCode": {
     "message": "Source code (GitHub)"
   },
   "licenseText": {
-    "message": "License text"
+    "message": "MIT License"
   },
   "pasteMenu": {
     "message": "Paste settings…"
@@ -333,13 +342,37 @@
     "message": "Paste settings"
   },
   "pasteHtml": {
-    "message": "Paste formatted text"
+    "message": "Convert formatted text to Markdown"
   },
   "pasteHtmlHelp": {
-    "message": "When you paste formatted (HTML) text, convert it to Markdown automatically."
+    "message": "Brings in formatting such as headings, bold, lists, and tables. When this is off, only the text is pasted, without formatting."
   },
   "pasteNote": {
-    "message": "Paste an AI answer or other formatted text, and its headings, bold, lists, tables, links and code come in as Markdown. Text without formatting and Markdown source are pasted as they are. When this is off, only the text is pasted, as before."
+    "message": "Markdown and text without formatting are pasted as they are. Some formatting, such as text color and fonts, is not carried over."
+  },
+  "saveSettings": {
+    "message": "Save settings"
+  },
+  "pasteStatus": {
+    "message": "Formatted paste: $1"
+  },
+  "pasteStatusTitle": {
+    "message": "Open paste settings"
+  },
+  "pasteOn": {
+    "message": "On"
+  },
+  "pasteOff": {
+    "message": "Off"
+  },
+  "pasteConverted": {
+    "message": "Formatted text was converted to Markdown and pasted"
+  },
+  "pasteHint": {
+    "message": "Formatted text was pasted as plain text. Turn on the setting to bring in its formatting too."
+  },
+  "closeHint": {
+    "message": "Close this notice"
   },
   "pasteSaved": {
     "message": "Paste settings saved"
@@ -348,7 +381,7 @@
     "message": "Could not save the paste settings"
   },
   "pasteTooLong": {
-    "message": "The text is long, so it was pasted as plain text without converting the formatting"
+    "message": "The content is long, so it was pasted without its formatting"
   },
   "pasteFailed": {
     "message": "Could not paste"
