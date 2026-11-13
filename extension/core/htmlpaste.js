@@ -37,6 +37,9 @@ export function choosePaste({ html, plain }, env) {
     if (found.size === 0) {
       return { kind: "plain", reason: "no-format" };
     }
+    if (plain && isMarkdownSourceView(root, plain)) {
+      return { kind: "plain", reason: "source-view" };
+    }
     if (plain && plainKeepsMarkdown(plain, found)) {
       return { kind: "plain", reason: "markdown-plain" };
     }
@@ -130,6 +133,60 @@ export function plainKeepsMarkdown(plain, found) {
     return false;
   }
   return Object.keys(has).some((key) => found.has(key) && has[key]);
+}
+
+/**
+ * 文書としての要素（これがあれば、原文の表示ではなく表示された文書とみなす）。
+ * code は Web ページのコードブロック（pre > code）で、今までどおりフェンス付きに変換する。エディターのコピーには code がない。
+ */
+const DOCUMENT_ELEMENTS = "h1, h2, h3, h4, h5, h6, ul, ol, table, blockquote, hr, img, a[href], code";
+/** text/plain が Markdown の原文らしい記号（見出し・リスト・表・フェンス・引用・リンク・太字）。 */
+const MARKDOWN_SIGNS = [
+  /^ {0,3}#{1,6}[ \t]+\S/mu,
+  /^ {0,3}(?:[-*+]|\d{1,9}[.)])[ \t]+\S/mu,
+  /^ {0,3}\|?[ \t]*:?-{3,}:?[ \t]*\|/mu,
+  /^ {0,3}(?:```|~~~)/mu,
+  /^ {0,3}>[ \t]?\S/mu,
+  /\[[^\]\n]+\]\([^)\s]+\)/u,
+  /(\*\*|__)(?=\S)[^\n]*?\S\1/u,
+];
+
+/**
+ * HTML が Markdown の原文を色付きで表示しているだけか（VS Code などのエディターからのコピー）。
+ * エディターは原文を等幅の表示（pre や white-space: pre）のまま、見出しの行などを太字の span にして text/html に入れる。
+ * これを変換すると記号がエスケープされるので、次のすべてに当てはまれば text/plain を使う。
+ * - 見出し・リスト・表・code などの文書の要素がない
+ * - 文字がすべて等幅の表示（pre または white-space: pre / pre-wrap / break-spaces）の中にある
+ * - 空白を除いた文字が text/plain と同じ
+ * - text/plain に Markdown の記号がある
+ */
+export function isMarkdownSourceView(root, plain) {
+  if (root.querySelector(DOCUMENT_ELEMENTS)) {
+    return false;
+  }
+  const squash = (text) => text.replace(/\s+/gu, "");
+  if (squash(root.textContent) === "" || squash(root.textContent) !== squash(plain)) {
+    return false;
+  }
+  const walker = root.ownerDocument.createTreeWalker(root, 4 /* NodeFilter.SHOW_TEXT */);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node.data.trim() !== "" && !isPreformatted(node.parentNode, root)) {
+      return false;
+    }
+  }
+  return MARKDOWN_SIGNS.some((sign) => sign.test(plain));
+}
+
+function isPreformatted(el, root) {
+  for (let node = el; node && node.nodeType === 1; node = node.parentNode) {
+    if (node.nodeName === "PRE" || /^(?:pre|pre-wrap|break-spaces)$/u.test(String(node.style?.whiteSpace ?? "").toLowerCase())) {
+      return true;
+    }
+    if (node === root) {
+      break;
+    }
+  }
+  return false;
 }
 
 /** 要素の中身を Markdown にする（parseHtml で整えた要素を渡す）。 */

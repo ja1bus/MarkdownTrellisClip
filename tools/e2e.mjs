@@ -823,6 +823,14 @@ try {
     const markdownPlain = "## 見出し\n\n**太字**と$x^2$";
     await pasteWith(markdownPlain, "<h2>見出し</h2><p><strong>太字</strong>と<span class=\"katex\">x2</span></p>");
     assert(await val() === markdownPlain, `Markdown の原文: ${await val()}`);
+    // VS Code で色付けした Markdown の原文（見出しの行が太字の span、** はない）も text/plain のまま（2026-11-13 利用者の報告、1.2.1）
+    await clear();
+    const editorPlain = "# 書いて公開する\n\n| 方法 | 操作 |\n|---|---|\n| A | `B` |\n\n- [リンク](../a.md)";
+    const editorHtml = `<div style="color: #cccccc;background-color: #1f1f1f;font-family: Consolas, monospace;white-space: pre;">${editorPlain.split("\n")
+      .map((line) => (line === "" ? "<br>" : `<div><span style="color: #569cd6;${line.startsWith("#") ? "font-weight: bold;" : ""}">${line}</span></div>`)).join("")}</div>`;
+    await pasteWith(editorPlain, editorHtml);
+    assert(await val() === editorPlain, `エディターの原文: ${await val()}`);
+    assert(/<h1>書いて公開する<\/h1>/u.test(await p.eval("document.getElementById('preview').innerHTML")), "エディターの原文のプレビューに見出しがない");
 
     // 危険な HTML: 実行・通信・ダイアログが起きず、危険なリンクを出さない
     await clear();

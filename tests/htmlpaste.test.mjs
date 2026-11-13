@@ -159,6 +159,32 @@ test("text/plain がすでに Markdown（ChatGPT のコピーボタンなど）�
   assert.equal(paste(html, "見出し\n太字とリンク").kind, "markdown");
 });
 
+test("VS Code などのエディターで色付けした Markdown の原文は変換せず、text/plain を使う", () => {
+  const esc = (s) => s.replace(/&/gu, "&amp;").replace(/</gu, "&lt;").replace(/>/gu, "&gt;");
+  const plain = "# 書いて公開する\n\n本文の `code` と [リンク](../a.md)。\n\n## 公開する\n\n| 方法 | 操作 |\n|---|---|\n| A | B |\n\n```text\nタイトル\n```\n\n- 箇条書き";
+  // VS Code の形式: white-space: pre の div の中に行ごとの div、空行は br、見出しの行は太字の span（太字の ** はない）
+  const lines = plain.split("\n").map((line) => (line === "" ? "<br>"
+    : `<div><span style="color: #569cd6;${line.startsWith("#") ? "font-weight: bold;" : ""}">${esc(line)}</span></div>`));
+  const vscode = `<meta charset='utf-8'><div style="color: #cccccc;background-color: #1f1f1f;font-family: Consolas, 'Courier New', monospace;`
+    + `font-weight: normal;font-size: 14px;line-height: 19px;white-space: pre;">${lines.join("")}</div>`;
+  assert.deepEqual(paste(wrap(vscode), plain), { kind: "plain", reason: "source-view" });
+  // JetBrains の形式: pre の中に色付けした原文
+  assert.equal(paste(wrap(`<pre style="font-family: monospace"><span style="font-weight: bold">${esc(plain)}</span></pre>`), plain).reason, "source-view");
+
+  // 次の場合は今までどおり HTML を変換する
+  // Markdown の記号がない（太字のある普通の文章を等幅で表示）
+  assert.equal(paste(wrap(`<div style="white-space: pre"><b>注意</b> 本文です</div>`), "注意 本文です").kind, "markdown");
+  // 等幅の表示の外に文字がある（Google ドキュメントなど。番号付きの段落があっても）
+  assert.equal(paste(wrap(`<p><b>1. 準備</b></p><p>本文です</p>`), "1. 準備\n本文です").kind, "markdown");
+  // Web ページのコードブロック（pre > code）はフェンス付きにする
+  assert.match(paste(wrap(`<pre><code class="language-markdown"># 見出し\n- 項目</code></pre>`), "# 見出し\n- 項目").text,
+    /^```markdown\n# 見出し\n- 項目\n```$/u);
+  // text/plain と文字が違う（表示された文書の一部）
+  assert.equal(paste(wrap(`<div style="white-space: pre"><b>見出し</b></div>`), "# 別の文").kind, "markdown");
+  // 文書の要素がある（AI の回答の表示）
+  assert.equal(paste(wrap(`<div style="white-space: pre-wrap"><h2>見出し</h2><p><b>太字</b></p></div>`), "見出し\n太字").kind, "markdown");
+});
+
 test("HTML の表が text/plain で表になっていなければ、text/plain に太字の記号があっても HTML を変換する", () => {
   const found = formattingIn(parseHtml(wrap("<p><b>x</b></p><table><tr><th>A</th></tr><tr><td>1</td></tr></table>"), env.DOMParser));
   assert.equal(plainKeepsMarkdown("**x**\nA\n1", found), false);
