@@ -8,6 +8,7 @@
   --accent: #0b6b62;
   --accent-text: #ffffff;
   --accent-soft: #e3f2ef;
+  --jump-bg: #c9ece4; /* 位置の連動で移った箇所を示す色 */
   --hover: #eef1f3;
   --focus: #0969da;
   --danger: #b42318;
@@ -29,6 +30,7 @@
     --accent: #3fb8a8;
     --accent-text: #0b1513;
     --accent-soft: #1f3532;
+    --jump-bg: #2c5a51;
     --hover: #272c33;
     --focus: #6cb6ff;
     --danger: #ff7b72;
@@ -474,6 +476,31 @@ svg .dot {
 .markdown-body td[align="right"] { text-align: right; }
 .markdown-body th[align="left"],
 .markdown-body td[align="left"] { text-align: left; }
+
+/* 位置の連動で移った箇所を示す（仕様 §3.2）。示すときはすぐ、外すときは jump-fade で徐々に薄くする */
+.markdown-body .jump-target,
+.markdown-body tr.jump-target > th,
+.markdown-body tr.jump-target > td {
+  background-color: var(--jump-bg);
+}
+
+.markdown-body .jump-target:not(tr) {
+  box-shadow: 0 0 0 4px var(--jump-bg);
+}
+
+.markdown-body .jump-fade,
+.markdown-body tr.jump-fade > th,
+.markdown-body tr.jump-fade > td {
+  transition: background-color 0.6s ease-out, box-shadow 0.6s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .markdown-body .jump-fade,
+  .markdown-body tr.jump-fade > th,
+  .markdown-body tr.jump-fade > td {
+    transition: none;
+  }
+}
 
 .markdown-body hr {
   border: 0;

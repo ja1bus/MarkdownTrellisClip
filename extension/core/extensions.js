@@ -330,8 +330,10 @@ const ALERT_KINDS = { note: "Note", tip: "Tip", important: "Important", warning:
 /**
  * @param {DocumentFragment} fragment
  * @param {Document} doc
+ * @returns {Map<Element, Element>} 置き換えた引用 -> 枠（位置の連動の対応表が使う）
  */
 export function applyAlerts(fragment, doc) {
+  const replaced = new Map();
   for (const quote of [...fragment.querySelectorAll("blockquote")]) {
     const first = quote.firstElementChild;
     if (!first || first.nodeName !== "P" || !first.firstChild || first.firstChild.nodeType !== 3) {
@@ -358,7 +360,9 @@ export function applyAlerts(fragment, doc) {
     title.textContent = ALERT_KINDS[kind];
     box.append(title, ...quote.childNodes);
     quote.replaceWith(box);
+    replaced.set(quote, box);
   }
+  return replaced;
 }
 
 // ---- 検出（有効にするかは利用者が選ぶ） ----

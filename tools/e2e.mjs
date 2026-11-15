@@ -240,7 +240,7 @@ class PageSession {
 
   async key(key, { ctrl = false, shift = false } = {}) {
     const code = key.length === 1 ? `Key${key.toUpperCase()}` : key;
-    const vk = key.length === 1 ? key.toUpperCase().charCodeAt(0) : { Enter: 13, Escape: 27 }[key];
+    const vk = key.length === 1 ? key.toUpperCase().charCodeAt(0) : { Enter: 13, Escape: 27, ArrowDown: 40, ArrowUp: 38, PageDown: 34, PageUp: 33, End: 35, Home: 36, Delete: 46 }[key];
     const modifiers = (ctrl ? 2 : 0) | (shift ? 8 : 0);
     await this.send("Input.dispatchKeyEvent", { type: "rawKeyDown", key, code, windowsVirtualKeyCode: vk, modifiers });
     if (key === "Enter") {
@@ -276,6 +276,37 @@ class PageSession {
     return this.eval("(() => { const t = document.getElementById('toast'); return t.hidden ? '' : (t.classList.contains('error') ? 'ERROR:' : '') + t.textContent; })()");
   }
 
+  /** 座標へマウスのクリック（count が 2 ならダブルクリック）を送る。 */
+  async mouse(x, y, { count = 1, shift = false } = {}) {
+    const modifiers = shift ? 8 : 0;
+    await this.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, modifiers });
+    for (let n = 1; n <= count; n++) {
+      await this.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: n, modifiers });
+      await this.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: n, modifiers });
+    }
+    await sleep(80);
+  }
+
+  /** 位置の連動の試験の補助（試験表 docs/verification.md の共通の定義）を作業タブに入れる。 */
+  async installJumpHelpers() {
+    await this.eval(JUMP_HELPERS);
+  }
+
+  /** 編集欄の n 行目を、編集欄の高さの割合 r の位置でクリックする。実際の割合 r を返す。 */
+  async clickLine(n, r = 0.4, options = {}) {
+    const point = await this.eval(`window.__j.pointForLine(${n}, ${r})`);
+    await this.mouse(point.x, point.y, options);
+    return point;
+  }
+
+  /** プレビューの要素（selector と順番）の、上から割合 fy の点をダブルクリックする。押した P での割合 r を返す。 */
+  async dblclickPreview(selector, { index = 0, fy = 0.5, fx = null, text = null, at = null } = {}) {
+    const point = await this.eval(`window.__j.pointInPreview(${JSON.stringify(selector)}, ${index}, ${fy}, ${fx}, ${JSON.stringify(text)}, ${at})`);
+    assert(point, `${selector} がプレビューにない`);
+    await this.mouse(point.x, point.y, { count: 2 });
+    return point;
+  }
+
   async screenshot(name) {
     if (!screenshotDir) {
       return;
@@ -293,6 +324,111 @@ const GFM_SAMPLE = [
   "- [x] 設計", "- [ ] 公開", "", "1. 手順1", "2. 手順2", "", "> 引用の文", "",
   "詳細は https://example.com を参照。", "", "```js", "console.log(\"こんにちは\");", "```", "", "---", "", "以上",
 ].join("\n");
+
+// 位置の連動（試験表 docs/verification.md の D1）。L55 以降は「埋め草1」〜「埋め草40」
+const JUMP_D1 = [
+  "---", "title: 試験", "---", "# 見出し1", "",
+  "段落Aの1行目", "段落Aの**2行目**", "段落Aの3行目", "段落Aの4行目", "",
+  "- 項目1", "- 項目2", "  - 入れ子2-1", "  - 入れ子2-2", "- 項目3", "",
+  "> 引用の段落1", ">", "> 引用の段落2", "",
+  "| 列A | 列B |", "| --- | --- |", "| a1 | b1 |", "| a2 | b2 |", "| a3 | b3 |", "",
+  "```js", "const x = 1;", "const y = 2;", "const z = 3;", "```", "",
+  "---", "",
+  "<details><summary>概要</summary>中身</details>", "",
+  "$$", "E = mc^2", "$$", "",
+  "::: note", "コンテナの段落", ":::", "",
+  "用語", ": 説明", "",
+  "> [!NOTE]", "> 注意の本文", "",
+  "本文の脚注[^1]と[リンク](https://example.com)", "",
+  "[^1]: 注の本文",
+  ...Array.from({ length: 40 }, (_, i) => ["", `埋め草${i + 1}`]).flat(),
+].join("\n");
+
+// 作業タブに入れる補助。E は編集欄、P はプレビューの表示領域
+const JUMP_HELPERS = `window.__j = {
+  E: () => document.getElementById("source"),
+  P: () => document.getElementById("previewScroller"),
+  lh() { return parseFloat(getComputedStyle(this.E()).lineHeight); },
+  lineStart(n) { const lines = this.E().value.split("\\n"); return n <= 1 ? 0 : lines.slice(0, n - 1).join("\\n").length + 1; },
+  lineOf(offset) { return this.E().value.slice(0, offset).split("\\n").length; },
+  // 折り返さない行の、E の内容の中での上端
+  lineTop(n) { const e = this.E(); return parseFloat(getComputedStyle(e).paddingTop) + (n - 1) * this.lh(); },
+  pointForLine(n, r) {
+    const e = this.E();
+    const lh = this.lh();
+    e.scrollTop = this.lineTop(n) + lh / 2 - r * e.clientHeight;
+    const rect = e.getBoundingClientRect();
+    const y = rect.top + this.lineTop(n) - e.scrollTop + lh / 2;
+    return { x: rect.left + 20, y, r: (y - rect.top) / e.clientHeight };
+  },
+  // 折り返す行のための測り方（試験表 T-29）: E と同じ幅・字形・余白・折り返しの非表示の div に、offset の前までを入れた高さ
+  wrappedTop(offset) {
+    const e = this.E();
+    const cs = getComputedStyle(e);
+    const div = document.createElement("div");
+    for (const name of ["font", "padding", "lineHeight", "letterSpacing", "whiteSpace", "wordBreak", "overflowWrap", "tabSize"]) div.style[name] = cs[name];
+    Object.assign(div.style, { position: "absolute", visibility: "hidden", left: "-9999px", top: "0", width: e.clientWidth + "px", boxSizing: "border-box" });
+    div.textContent = e.value.slice(0, offset);
+    const span = document.createElement("span");
+    span.textContent = "x";
+    div.append(span);
+    document.body.append(div);
+    const top = span.offsetTop;
+    div.remove();
+    return top;
+  },
+  pointForOffset(offset, r) {
+    const e = this.E();
+    const lh = this.lh();
+    const top = this.wrappedTop(offset);
+    e.scrollTop = top + lh / 2 - r * e.clientHeight;
+    const rect = e.getBoundingClientRect();
+    const y = rect.top + top - e.scrollTop + lh / 2;
+    return { x: rect.left + 20, y, r: (y - rect.top) / e.clientHeight };
+  },
+  pointInPreview(selector, index, fy, fx, text = null, at = null) {
+    let list = [...document.querySelectorAll("#preview " + selector)];
+    if (text !== null) list = list.filter((el) => el.textContent.trim().startsWith(text));
+    const el = list[index];
+    if (!el) return null;
+    const p = this.P();
+    if (at === null) {
+      el.scrollIntoView({ block: "center" });
+    } else {
+      const rect0 = el.getBoundingClientRect();
+      p.scrollTop += rect0.top + rect0.height * fy - p.getBoundingClientRect().top - at * p.clientHeight;
+    }
+    const rect = el.getBoundingClientRect();
+    const y = rect.top + rect.height * fy;
+    return { x: fx === null ? rect.left + Math.min(20, rect.width / 2) : rect.left + rect.width * fx, y, r: (y - p.getBoundingClientRect().top) / p.clientHeight };
+  },
+  shown() {
+    return [...document.querySelectorAll("#preview .jump-target")].map((el) => ({ tag: el.nodeName, text: el.textContent.trim().slice(0, 30) }));
+  },
+  // 示した要素の点（上端から frac の高さ）が、P の上端から r の高さにあるか（端でスクロールが止まる場合は許す）
+  placed(r, frac = 0) {
+    const el = document.querySelector("#preview .jump-target");
+    if (!el) return { ok: false, why: "示していない" };
+    const p = this.P();
+    const rect = el.getBoundingClientRect();
+    const y = rect.top + rect.height * frac - p.getBoundingClientRect().top;
+    const tolerance = Math.max(24, parseFloat(getComputedStyle(document.querySelector("#preview p") ?? el).lineHeight) || 24);
+    const atEdge = p.scrollTop <= 0 || p.scrollTop >= p.scrollHeight - p.clientHeight - 1;
+    const ok = Math.abs(y - r * p.clientHeight) <= tolerance || atEdge;
+    return { ok, y, want: r * p.clientHeight, scrollTop: p.scrollTop, atEdge };
+  },
+  // カーソルの行（折り返さない文書）が E の上端から r の高さにあるか
+  caretPlaced(n, r) {
+    const e = this.E();
+    const y = this.lineTop(n) - e.scrollTop;
+    const atEdge = e.scrollTop <= 0 || e.scrollTop >= e.scrollHeight - e.clientHeight - 1;
+    return { ok: Math.abs(y - r * e.clientHeight) <= this.lh() || atEdge, y, want: r * e.clientHeight, atEdge };
+  },
+  state() {
+    const e = this.E();
+    return { start: e.selectionStart, end: e.selectionEnd, line: this.lineOf(e.selectionStart), focus: document.activeElement?.id ?? "", scrollTop: e.scrollTop, value: e.value };
+  },
+};`;
 
 try {
   await sleep(300);
@@ -1060,6 +1196,640 @@ try {
     assert(await p.eval("document.getElementById('pasteHtml').checked"), "再起動後に ON が保持されていない");
     await p.key("Escape");
     await p.eval("chrome.storage.local.clear()");
+  });
+
+  // ---- 位置の連動（1.3.0、仕様 §3.2。試験表 docs/verification.md の 20261115-position-jump） ----
+
+  /** 作業タブを開き、7部品すべてを有効にして text を入れる（paste なら Ctrl+V で貼る）。 */
+  async function openJumpEditor(text, { width = 1280, height = 800, paste = false } = {}) {
+    const p = await openEditor();
+    await p.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
+    await p.installJumpHelpers();
+    // 長い文書は貼り付けで入れる（追加構文のダイアログを閉じた後の作業タブでは、試験の Ctrl+V が効かないため先に貼る）
+    if (paste) {
+      await p.setClipboard(text);
+      await p.key("v", { ctrl: true });
+      await sleep(800);
+    }
+    await p.click("#settingsMenuButton");
+    await p.click("#openSyntax");
+    await p.eval("document.querySelectorAll(\"#syntaxDialog input[name='feature']\").forEach((input) => { input.checked = true; })");
+    await p.click("#syntaxDialog button[value='ok']");
+    if (!paste) {
+      await p.eval("document.getElementById('source').focus()");
+      await p.send("Input.insertText", { text });
+    }
+    await sleep(1000);
+    assert(await p.value() === text, "試験データを編集欄に入れられない");
+    return p;
+  }
+
+  await check("位置の連動 T-06・T-07: 編集欄のクリックで、その行の箇所をプレビューの同じ高さに出して示す", async () => {
+    const p = await openJumpEditor(JUMP_D1);
+    await p.eval("window.__j.P().scrollTop = 0");
+    await sleep(300);
+    let point = await p.clickLine(23, 0.3);
+    assert(await p.eval("window.__j.state().line") === 23, "クリックでカーソルが L23 に置かれない（試験の手順の誤り）");
+    await sleep(300);
+    let shown = await p.eval("window.__j.shown()");
+    assert(shown.length === 1 && shown[0].tag === "TR" && shown[0].text.startsWith("a1"), `L23 で示した要素: ${JSON.stringify(shown)}`);
+    let placed = await p.eval(`window.__j.placed(${point.r})`);
+    assert(placed.ok, `L23 の位置: ${JSON.stringify(placed)}`);
+    const colors = await p.eval("(() => { const rows = [...document.querySelectorAll('#preview tbody tr')]; return rows.map((tr) => getComputedStyle(tr.cells[0]).backgroundColor); })()");
+    assert(colors[0] !== colors[1], `示した行の背景色が変わらない: ${JSON.stringify(colors)}`);
+    await p.screenshot("20-jump-table");
+    await sleep(1700);
+    assert((await p.eval("window.__j.shown()")).length === 0, "2秒後も示している");
+    point = await p.clickLine(6, 0.7);
+    await sleep(300);
+    shown = await p.eval("window.__j.shown()");
+    assert(shown.length === 1 && shown[0].tag === "P" && shown[0].text.startsWith("段落A"), `L6 で示した要素: ${JSON.stringify(shown)}`);
+    placed = await p.eval(`window.__j.placed(${point.r})`);
+    assert(placed.ok, `L6 の位置: ${JSON.stringify(placed)}`);
+    // T-07: コードブロックの中の行は、塊の行数に対する割合で合わせる
+    for (const n of [28, 29, 30]) {
+      await sleep(2000);
+      point = await p.clickLine(n, 0.5);
+      await sleep(200);
+      shown = await p.eval("window.__j.shown()");
+      assert(shown.length === 1 && shown[0].tag === "PRE", `L${n} で示した要素: ${JSON.stringify(shown)}`);
+      placed = await p.eval(`window.__j.placed(${point.r}, ${(n - 27) / 5})`);
+      assert(placed.ok, `L${n} の位置: ${JSON.stringify(placed)}`);
+    }
+  });
+
+  await check("位置の連動 T-08: 範囲の選択・Shift+クリック・キーボード・入力ではプレビューを動かさない", async () => {
+    const p = await openJumpEditor(JUMP_D1);
+    await p.clickLine(4, 0.4);
+    await sleep(2000);
+    const before = await p.eval("window.__j.P().scrollTop");
+    const quiet = async (label) => {
+      for (const wait of [500, 1000]) {
+        await sleep(wait);
+        const s = await p.eval("({ shown: window.__j.shown(), top: window.__j.P().scrollTop })");
+        assert(s.shown.length === 0 && Math.abs(s.top - before) <= 1, `${label}: ${JSON.stringify(s)} / 前 ${before}`);
+      }
+    };
+    // (a) L6 の行頭から L9 の行末までドラッグ
+    const from = await p.eval("window.__j.pointForLine(6, 0.3)");
+    const to = await p.eval(`(() => { const e = window.__j.E(); const rect = e.getBoundingClientRect(); return { x: rect.left + 200, y: rect.top + window.__j.lineTop(9) - e.scrollTop + window.__j.lh() / 2 }; })()`);
+    await p.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: from.x - 15, y: from.y });
+    await p.send("Input.dispatchMouseEvent", { type: "mousePressed", x: from.x - 15, y: from.y, button: "left", clickCount: 1 });
+    await p.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: to.x, y: to.y, button: "left", buttons: 1 });
+    await p.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: to.x, y: to.y, button: "left", clickCount: 1 });
+    let s = await p.eval("window.__j.state()");
+    assert(s.start !== s.end && s.line === 6, `ドラッグの選択: ${JSON.stringify({ start: s.start, end: s.end })}`);
+    await quiet("ドラッグ");
+    // (b) Shift+クリック
+    await p.clickLine(25, 0.6, { shift: true });
+    s = await p.eval("window.__j.state()");
+    assert(s.start !== s.end, "Shift+クリックで選択にならない");
+    await quiet("Shift+クリック");
+    // (c) キーボードでの移動
+    for (let i = 0; i < 5; i++) {
+      await p.key("ArrowDown");
+    }
+    await p.key("PageDown");
+    await p.key("End", { ctrl: true });
+    await p.key("Home", { ctrl: true });
+    await quiet("キーボード");
+    // (d) 入力
+    await p.send("Input.insertText", { text: "x" });
+    await quiet("入力");
+  });
+
+  await check("位置の連動 T-09・T-10: プレビューのダブルクリックで、元の行の先頭にカーソルを置き、同じ高さに出す", async () => {
+    const p = await openJumpEditor(JUMP_D1);
+    const cases = [
+      ["h1", { fy: 0.5 }, 4], ["p", { fy: 0.15 }, 6], ["p", { fy: 0.85 }, 9], ["tbody tr:nth-child(2) td", { fy: 0.5 }, 24], ["li li", { index: 1, fy: 0.5 }, 14],
+    ];
+    for (const [selector, options, line] of cases) {
+      await p.eval("(() => { const e = window.__j.E(); e.scrollTop = 0; e.setSelectionRange(0, 0); window.__j.P().focus(); })()");
+      const point = await p.dblclickPreview(selector, options);
+      const s = await p.eval("window.__j.state()");
+      const want = await p.eval(`window.__j.lineStart(${line})`);
+      assert(s.focus === "source" && s.start === want && s.end === want, `${selector}: カーソル ${JSON.stringify({ focus: s.focus, start: s.start, end: s.end, line: s.line })} / 期待 L${line}=${want}`);
+      assert(s.value === JUMP_D1, `${selector}: 原文が変わった`);
+      const placed = await p.eval(`window.__j.caretPlaced(${line}, ${point.r})`);
+      assert(placed.ok, `${selector}: 行の位置 ${JSON.stringify(placed)}`);
+    }
+    // T-10: 編集欄を閉じていれば開く
+    await p.click("#toggleSource");
+    assert(!(await p.eval("document.getElementById('workspace').classList.contains('source-open')")), "編集欄が閉じない");
+    await p.dblclickPreview("thead th");
+    const s = await p.eval("({ ...window.__j.state(), open: document.getElementById('workspace').classList.contains('source-open'), label: document.getElementById('toggleSourceLabel').textContent })");
+    assert(s.open && s.label === (lang === "ja" ? "プレビューを広げる" : "Expand Preview"), `編集欄が開かない: ${JSON.stringify({ open: s.open, label: s.label })}`);
+    assert(s.focus === "source" && s.start === await p.eval("window.__j.lineStart(21)") && s.value === JUMP_D1, `見出し行: ${JSON.stringify({ focus: s.focus, line: s.line })}`);
+  });
+
+  await check("位置の連動 T-11・T-12: リンク・脚注の一覧・空白のダブルクリックでは移らず、Frontmatter のクリックでは先頭へ", async () => {
+    const p = await openJumpEditor(JUMP_D1);
+    await p.eval("window.open = (...args) => { window.__openedCount = (window.__openedCount ?? 0) + 1; window.__opened = args; return null; }");
+    await p.clickLine(4, 0.4);
+    const record = await p.eval("window.__j.state()");
+    const unchanged = async (label) => {
+      const s = await p.eval("window.__j.state()");
+      assert(s.start === record.start && s.end === record.end && s.scrollTop === record.scrollTop && s.focus !== "source", `${label}: ${JSON.stringify({ start: s.start, end: s.end, scrollTop: s.scrollTop, focus: s.focus })} / 前 ${JSON.stringify({ start: record.start, scrollTop: record.scrollTop })}`);
+    };
+    await p.dblclickPreview("a[href^='https']");
+    await unchanged("リンク");
+    const opened = await p.eval("({ count: window.__openedCount, url: window.__opened?.[0] })");
+    assert(opened.count === 1 && opened.url === "https://example.com", `リンクのダブルクリックで開いた回数: ${JSON.stringify(opened)}`);
+    await p.dblclickPreview("section.footnotes li");
+    await unchanged("脚注の一覧");
+    const empty = await p.eval("(() => { const sc = window.__j.P(); sc.scrollTop = sc.scrollHeight; const r = sc.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.bottom - 10 }; })()");
+    await p.mouse(empty.x, empty.y, { count: 2 });
+    await unchanged("何もない所");
+    // T-12: Frontmatter の中のクリックはプレビューの先頭へ
+    await p.eval("window.__j.P().scrollTop = window.__j.P().scrollHeight");
+    await p.clickLine(2, 0.2);
+    await sleep(100);
+    assert(await p.eval("window.__j.P().scrollTop") === 0, "Frontmatter のクリックで先頭へ移らない");
+  });
+
+  await check("位置の連動 T-13: 原文・コピーの結果・Undo履歴を変えない", async () => {
+    const p = await openJumpEditor(JUMP_D1);
+    await p.eval("(() => { const e = window.__j.E(); const at = window.__j.lineStart(10) - 1; e.setSelectionRange(at, at); })()");
+    await p.send("Input.insertText", { text: "X" });
+    await sleep(1000);
+    const value = await p.value();
+    const takeCopies = async () => {
+      const out = {};
+      await p.click("#copyMarkdown");
+      out.markdown = await p.readClipboard();
+      await p.click("#copyRich");
+      out.rich = await p.readClipboard();
+      await p.eval("(() => { const e = window.__j.E(); e.focus(); e.setSelectionRange(window.__j.lineStart(6), window.__j.lineStart(10) - 1); document.dispatchEvent(new Event('selectionchange')); })()");
+      await sleep(100);
+      await p.click("#copySelection");
+      out.selection = await p.readClipboard();
+      return out;
+    };
+    const before = await takeCopies();
+    await p.clickLine(23, 0.3);
+    await p.clickLine(6, 0.7);
+    for (const [selector, options] of [["h1", {}], ["p", { fy: 0.15 }], ["p", { fy: 0.85 }], ["tbody tr:nth-child(2) td", {}], ["li li", { index: 1 }]]) {
+      await p.dblclickPreview(selector, options);
+    }
+    await sleep(2500);
+    assert(await p.value() === value, "位置の連動で原文が変わった");
+    const after = await takeCopies();
+    for (const key of ["markdown", "rich", "selection"]) {
+      assert(JSON.stringify(after[key]) === JSON.stringify(before[key]), `${key} のコピーが変わった`);
+    }
+    const dom = await p.eval("(() => { const w = document.createTreeWalker(document.getElementById('preview'), NodeFilter.SHOW_COMMENT); return { comment: w.nextNode() !== null, jump: document.querySelectorAll('#preview .jump-target, #preview .jump-fade').length }; })()");
+    assert(!dom.comment && dom.jump === 0, `プレビューの DOM: ${JSON.stringify(dom)}`);
+    await p.eval("window.__j.E().focus()");
+    await p.key("z", { ctrl: true });
+    assert(await p.value() === JUMP_D1, "Ctrl+Z の1回で X を入れる前に戻らない");
+    await p.key("y", { ctrl: true });
+    assert(await p.value() === value, "Ctrl+Y で X が戻らない");
+  });
+
+  // ---- 位置の連動の総合試験（T-15〜T-29、T-32） ----
+
+  /** 示した要素が1つで、tag と文字の始まりが一致するか。 */
+  const expectShown = async (p, label, tag, text = null) => {
+    const shown = await p.eval("window.__j.shown()");
+    assert(shown.length === 1 && shown[0].tag === tag && (text === null || shown[0].text.startsWith(text)), `${label}: ${JSON.stringify(shown)}（期待 ${tag} ${text ?? ""}）`);
+  };
+
+  await check("位置の連動 T-15: 各種のブロックの行をクリックすると、その塊を示す", async () => {
+    const p = await openJumpEditor(JUMP_D1);
+    // [行, 要素, 文字の始まり, 塊の中の割合（表の行は0）]
+    const cases = [
+      [4, "H1", "見出し1", 0], [11, "LI", "項目1", 0], [12, "LI", "項目2", 0], [13, "LI", "入れ子2-1", 0], [14, "LI", "入れ子2-2", 0],
+      [15, "LI", "項目3", 0], [17, "P", "引用の段落1", 0], [19, "P", "引用の段落2", 0], [21, "TR", "列A", 0], [22, "TR", "列A", 0],
+      [23, "TR", "a1", 0], [25, "TR", "a3", 0], [33, "HR", null, 0], [35, "DETAILS", "概要", 0], [38, "DIV", "$$", 1 / 3],
+      [41, "DIV", "note", 0], [42, "P", "コンテナの段落", 0], [45, "DL", "用語", 0], [46, "DL", "用語", 1 / 2], [48, "DIV", "Note", 0],
+      [49, "P", "注意の本文", 1 / 2], [51, "P", "本文の脚注", 0], [93, "P", "埋め草20", 0],
+    ];
+    for (const [line, tag, text, frac] of cases) {
+      // 前の示し方は次のクリックで消える実装なので、2秒ではなく0.4秒あける（1つだけ示すことは毎回確かめる）
+      const point = await p.clickLine(line, 0.4);
+      await sleep(250);
+      await expectShown(p, `L${line}`, tag, text);
+      const placed = await p.eval(`window.__j.placed(${point.r}, ${frac})`);
+      assert(placed.ok, `L${line} の位置: ${JSON.stringify(placed)}`);
+      await sleep(150);
+    }
+  });
+
+  await check("位置の連動 T-16: 各種のブロックのダブルクリックで、その行へ移る", async () => {
+    const p = await openJumpEditor(JUMP_D1);
+    // [セレクター, 指定, 期待の行の範囲]
+    const cases = [
+      ["p strong", { text: "2行目" }, [6, 9]], ["thead th", {}, [21, 21]], ["tbody tr:nth-child(3) td", {}, [25, 25]], ["> ul > li", { index: 2 }, [15, 15]],
+      ["li li", {}, [13, 13]], ["blockquote p", { index: 1 }, [19, 19]], ["pre", { fy: 0.2 }, [27, 29]], ["pre", { fy: 0.8 }, [29, 31]],
+      ["hr", {}, [33, 33]], ["details summary", {}, [35, 35]], [".mtc-math-display", {}, [37, 39]], [".mtc-container-title", {}, [41, 41]],
+      [".mtc-container > p:not(.mtc-container-title)", {}, [42, 42]], ["dt", {}, [45, 45]], ["dd", {}, [46, 46]], [".markdown-alert-title", {}, [48, 48]],
+      ["p", { text: "本文の脚注" }, [51, 51]], ["p", { text: "埋め草20" }, [93, 93]],
+    ];
+    let preLine = 0;
+    for (const [selector, options, [low, high]] of cases) {
+      await p.eval("(() => { const e = window.__j.E(); e.scrollTop = 0; e.setSelectionRange(0, 0); window.__j.P().focus(); })()");
+      const point = await p.dblclickPreview(selector, options);
+      const s = await p.eval("window.__j.state()");
+      const lineStart = await p.eval(`window.__j.lineStart(${s.line})`);
+      assert(s.focus === "source" && s.start === lineStart && s.line >= low && s.line <= high && s.value === JUMP_D1, `${selector} ${JSON.stringify(options)}: L${s.line}（期待 L${low}〜L${high}）、フォーカス ${s.focus}、行頭 ${s.start === lineStart}`);
+      if (selector === "pre") {
+        assert(s.line > preLine, `pre の下の方が上の方より後の行でない: L${preLine} → L${s.line}`);
+        preLine = s.line;
+      }
+      const placed = await p.eval(`window.__j.caretPlaced(${s.line}, ${point.r})`);
+      assert(placed.ok, `${selector}: 行の位置 ${JSON.stringify(placed)}`);
+    }
+  });
+
+  await check("位置の連動 T-17: 安全化で消えるブロック・コメントの後の段落は、その段落の行と対応する", async () => {
+    const C2 = ["<script>alert(1)</script>", "", "段落P", "", "<!-- 利用者のコメント -->", "", "段落Q"].join("\n");
+    const dialogsBefore = dialogs.length;
+    const p = await openJumpEditor(C2);
+    await p.clickLine(3, 0.3);
+    await sleep(200);
+    await expectShown(p, "L3", "P", "段落P");
+    await p.clickLine(7, 0.3);
+    await sleep(200);
+    await expectShown(p, "L7", "P", "段落Q");
+    for (const [text, line] of [["段落P", 3], ["段落Q", 7]]) {
+      await p.dblclickPreview("p", { text });
+      const s = await p.eval("window.__j.state()");
+      assert(s.line === line && s.start === await p.eval(`window.__j.lineStart(${line})`), `${text}: L${s.line}`);
+    }
+    assert(dialogs.length === dialogsBefore && await p.eval("window.__pwned === undefined"), "スクリプトが動いた");
+  });
+
+  await check("位置の連動 T-18: コンテナを無効にすると、::: を含む段落として対応する", async () => {
+    const p = await openJumpEditor(JUMP_D1);
+    await p.click("#settingsMenuButton");
+    await p.click("#openSyntax");
+    await p.eval("document.querySelector(\"#syntaxDialog input[value='containers']\").checked = false");
+    await p.click("#syntaxDialog button[value='ok']");
+    await sleep(400);
+    await p.clickLine(42, 0.4);
+    await sleep(200);
+    const shown = await p.eval("window.__j.shown()");
+    assert(shown.length === 1 && shown[0].tag === "P" && shown[0].text.includes("::: note") && shown[0].text.includes("コンテナの段落"), `L42: ${JSON.stringify(shown)}`);
+    await p.dblclickPreview("p", { text: "::: note" });
+    const s = await p.eval("window.__j.state()");
+    assert(s.line >= 41 && s.line <= 43 && s.start === await p.eval(`window.__j.lineStart(${s.line})`), `ダブルクリック: L${s.line}`);
+    await p.clickLine(23, 0.4);
+    await sleep(200);
+    await expectShown(p, "L23", "TR", "a1");
+  });
+
+  await check("位置の連動 T-19: 注の定義の行は直前の段落、脚注の番号・↩・案内のダブルクリックでは移らない", async () => {
+    const p = await openJumpEditor(JUMP_D1);
+    await p.clickLine(53, 0.4);
+    await sleep(200);
+    await expectShown(p, "L53", "P", "本文の脚注");
+    await p.clickLine(4, 0.4);
+    const record = await p.eval("window.__j.state()");
+    const unchanged = async (label) => {
+      const s = await p.eval("window.__j.state()");
+      assert(s.start === record.start && s.scrollTop === record.scrollTop && s.focus !== "source", `${label}: ${JSON.stringify({ start: s.start, scrollTop: s.scrollTop, focus: s.focus })}`);
+    };
+    await p.dblclickPreview("sup.footnote-ref a");
+    await unchanged("脚注の番号");
+    const noteVisible = await p.eval("(() => { const li = document.getElementById('mtc-fn-1'); const r = li.getBoundingClientRect(); const pr = window.__j.P().getBoundingClientRect(); return r.top >= pr.top && r.bottom <= pr.bottom; })()");
+    assert(noteVisible, "番号で注へ移らない");
+    await p.dblclickPreview("a.footnote-backref");
+    await unchanged("↩");
+    await p.click("#settingsMenuButton");
+    await p.click("#openSyntax");
+    await p.click("#clearFeatures");
+    await p.click("#syntaxDialog button[value='ok']");
+    await sleep(400);
+    await p.clickLine(4, 0.4);
+    const record2 = await p.eval("window.__j.state()");
+    const banner = await p.eval("(() => { const el = document.getElementById('syntaxMessage'); const r = el.getBoundingClientRect(); return { x: r.left + 10, y: r.top + r.height / 2, shown: !document.getElementById('syntaxBanner').hidden }; })()");
+    assert(banner.shown, "追加構文の案内が出ない");
+    await p.mouse(banner.x, banner.y, { count: 2 });
+    const s = await p.eval("window.__j.state()");
+    assert(s.start === record2.start && s.scrollTop === record2.scrollTop && s.focus !== "source", `案内: ${JSON.stringify({ start: s.start, focus: s.focus })}`);
+  });
+
+  await check("位置の連動 T-20: 空行は直前の塊、空・Frontmatter だけでは何も示さず、クリアの後に古い対応が残らない", async () => {
+    const p = await openJumpEditor(JUMP_D1);
+    await p.clickLine(5, 0.4);
+    await sleep(200);
+    await expectShown(p, "L5", "H1", "見出し1");
+    await p.clickLine(10, 0.4);
+    await sleep(200);
+    await expectShown(p, "L10", "P", "段落A");
+    const clear = async () => {
+      await p.click("#clear");
+      if (await p.eval("document.getElementById('clearDialog').open")) {
+        await p.click("#clearDialog button[value='clear']");
+      }
+      await sleep(200);
+      await p.installJumpHelpers();
+    };
+    await clear();
+    await p.clickLine(1, 0.1);
+    await sleep(200);
+    assert((await p.eval("window.__j.shown()")).length === 0 && await p.eval("window.__j.P().scrollTop") === 0, "空の状態で示した");
+    await p.eval("window.__j.E().focus()");
+    await p.send("Input.insertText", { text: "---\ntitle: 試験\n---" });
+    await sleep(800);
+    await p.clickLine(2, 0.2);
+    await sleep(200);
+    assert((await p.eval("window.__j.shown()")).length === 0 && await p.eval("window.__j.P().scrollTop") === 0, "Frontmatter だけで示した");
+    await clear();
+    await p.eval("window.__j.E().focus()");
+    await p.send("Input.insertText", { text: JUMP_D1 });
+    await sleep(1000);
+    await p.clickLine(23, 0.3);
+    await sleep(200);
+    await expectShown(p, "クリアの後の L23", "TR", "a1");
+  });
+
+  await check("位置の連動 T-21: 全文フェンスの除外の有無・Frontmatter でずれない", async () => {
+    const D2 = ["```markdown", "# 外側の中の見出し", "", "中の段落", "", ...Array.from({ length: 30 }, (_, i) => [`埋め草${i + 1}`, ""]).flat(), "```"].join("\n");
+    const p = await openJumpEditor(D2);
+    await p.clickLine(4, 0.4);
+    await sleep(200);
+    await expectShown(p, "除外なしの L4", "PRE");
+    await p.click("#toggleFence");
+    await sleep(400);
+    await p.clickLine(4, 0.4);
+    await sleep(200);
+    await expectShown(p, "除外ありの L4", "P", "中の段落");
+    await p.clickLine(2, 0.4);
+    await sleep(200);
+    await expectShown(p, "除外ありの L2", "H1", "外側の中の見出し");
+    await p.eval("window.__j.P().scrollTop = window.__j.P().scrollHeight");
+    await p.clickLine(1, 0.1);
+    await sleep(100);
+    assert(await p.eval("window.__j.P().scrollTop") === 0, "開きの行で先頭へ移らない");
+    await p.clickLine(65, 0.8);
+    await sleep(200);
+    await expectShown(p, "閉じの行", "P", "埋め草30");
+    for (const [selector, text, line] of [["h1", null, 2], ["p", "中の段落", 4]]) {
+      await p.dblclickPreview(selector, { text });
+      const s = await p.eval("window.__j.state()");
+      assert(s.line === line && s.start === await p.eval(`window.__j.lineStart(${line})`), `${selector} のダブルクリック: L${s.line}`);
+    }
+    const D2b = ["---", "a: 1", "---", "```md", "## 見出しF", "", "段落F", "```"].join("\n");
+    await p.eval("(() => { const e = window.__j.E(); e.focus(); e.select(); })()");
+    await p.send("Input.insertText", { text: D2b });
+    await sleep(800);
+    if (!(await p.eval("document.querySelector('#preview h2') !== null"))) {
+      await p.click("#toggleFence");
+      await sleep(400);
+    }
+    await p.clickLine(7, 0.4);
+    await sleep(200);
+    await expectShown(p, "D2b の L7", "P", "段落F");
+    await p.dblclickPreview("h2");
+    const s = await p.eval("window.__j.state()");
+    assert(s.line === 5, `D2b の見出し: L${s.line}`);
+    await p.click("#copyMarkdown");
+    assert(lf((await p.readClipboard())["text/plain"]) === D2b, "Markdownのコピーが原文と違う");
+  });
+
+  await check("位置の連動 T-22: 反映前の編集の直後にクリックすると、先にプレビューを更新して移る", async () => {
+    const p = await openJumpEditor(JUMP_D1);
+    await p.eval("(() => { const e = window.__j.E(); e.focus(); const at = window.__j.lineStart(10) - 1; e.setSelectionRange(at, at); })()");
+    await sleep(2000);
+    await p.send("Input.insertText", { text: "\n\n新しい段落Z" });
+    const point = await p.clickLine(11, 0.5);
+    await sleep(50);
+    await expectShown(p, "反映前の L11", "P", "新しい段落Z");
+    const placed = await p.eval(`window.__j.placed(${point.r})`);
+    assert(placed.ok, `位置: ${JSON.stringify(placed)}`);
+  });
+
+  await check("位置の連動 T-23: 手動更新の状態では最後の対応を使い、古い対応でも原文の長さを超えない", async () => {
+    const para = "埋め草の段落です。".repeat(10);
+    const lines = ["# 先頭", ""];
+    let length = 0;
+    let placedTarget = false;
+    while (length < 262000) {
+      lines.push(para, "");
+      length += para.length + 2;
+      if (!placedTarget && length > 130000) {
+        lines.push("# 目標", "");
+        placedTarget = true;
+      }
+    }
+    const D5 = lines.join("\n");
+    const p = await openJumpEditor(D5, { paste: true });
+    let status = await p.eval("({ refresh: !document.getElementById('refreshPreview').hidden, text: document.getElementById('previewStatusText').textContent })");
+    assert(status.refresh && /\d/u.test(status.text), `手動更新の表示: ${JSON.stringify(status)}`);
+    await p.click("#refreshPreview");
+    await sleep(500);
+    const target = await p.eval("window.__j.E().value.indexOf('\\n# 目標\\n') + 1");
+    let point = await p.eval(`window.__j.pointForOffset(${target}, 0.4)`);
+    await p.mouse(point.x, point.y);
+    await sleep(300);
+    await expectShown(p, "# 目標", "H1", "目標");
+    let placed = await p.eval(`window.__j.placed(${point.r})`);
+    assert(placed.ok, `# 目標 の位置: ${JSON.stringify(placed)}`);
+    await p.eval("(() => { const e = window.__j.E(); e.focus(); e.setSelectionRange(0, 0); })()");
+    await p.send("Input.insertText", { text: Array.from({ length: 50 }, (_, i) => `追加${i + 1}\n`).join("") });
+    await sleep(800);
+    const shifted = await p.eval("window.__j.E().value.indexOf('\\n# 目標\\n') + 1");
+    point = await p.eval(`window.__j.pointForOffset(${shifted}, 0.4)`);
+    await p.mouse(point.x, point.y);
+    await sleep(300);
+    status = await p.eval("({ refresh: !document.getElementById('refreshPreview').hidden, extra: document.getElementById('preview').textContent.includes('追加1') })");
+    assert(status.refresh && !status.extra, `手動更新の状態: ${JSON.stringify(status)}`);
+    await p.eval("(() => { const e = window.__j.E(); e.focus(); e.setSelectionRange(e.value.length - 50000, e.value.length); })()");
+    await p.key("Delete");
+    await sleep(500);
+    const before = await p.eval("window.__j.state()");
+    assert(before.value.length > 200000, "20万字を下回った（試験の手順の誤り）");
+    const lastIndex = await p.eval("document.querySelectorAll('#preview p').length - 1");
+    await p.dblclickPreview("p", { index: lastIndex });
+    const after = await p.eval("window.__j.state()");
+    assert(after.start === after.value.length && after.value === before.value, `末尾にそろわない: ${after.start} / ${after.value.length}`);
+  });
+
+  await check("位置の連動 T-24: IME変換中のクリックでは移らない", async () => {
+    const p = await openJumpEditor(JUMP_D1);
+    await p.clickLine(6, 0.3);
+    await sleep(1500);
+    const before = await p.eval("window.__j.P().scrollTop");
+    await p.send("Input.imeSetComposition", { text: "にほんご", selectionStart: 4, selectionEnd: 4 });
+    await sleep(200);
+    const composing = await p.eval("window.__j.E().value.includes('にほんご')");
+    assert(composing, "変換中の状態にならない（試験の手順の誤り）");
+    await p.clickLine(23, 0.6);
+    await sleep(300);
+    const s = await p.eval("({ shown: window.__j.shown(), top: window.__j.P().scrollTop })");
+    console.log(`    変換中のクリック: 示した要素 ${JSON.stringify(s.shown)}、scrollTop ${before} → ${s.top}`);
+    assert(s.shown.length === 0 && Math.abs(s.top - before) <= 1, `変換中のクリックで移った: ${JSON.stringify(s)}`);
+    await p.send("Input.insertText", { text: "日本語" });
+    await sleep(500);
+    assert((await p.value()).includes("日本語"), "確定した文字が入らない");
+  });
+
+  await check("位置の連動 T-25: 示している間のコピー・書式ボタン・貼り付け・保存した設定が変わらない", async () => {
+    const p = await openJumpEditor(JUMP_D1);
+    const storedBefore = await p.eval("chrome.storage.local.get(null)");
+    const copyAll = async () => {
+      await p.click("#copyRich");
+      const rich = await p.readClipboard();
+      await p.eval("(() => { const e = window.__j.E(); e.focus(); e.setSelectionRange(window.__j.lineStart(6), window.__j.lineStart(10) - 1); document.dispatchEvent(new Event('selectionchange')); })()");
+      await sleep(50);
+      await p.click("#copySelection");
+      return { rich, selection: await p.readClipboard() };
+    };
+    const before = await copyAll();
+    await p.clickLine(23, 0.3);
+    const during = await copyAll();
+    for (const key of ["rich", "selection"]) {
+      const text = JSON.stringify(during[key]);
+      assert(text === JSON.stringify(before[key]), `${key} が示している間に変わった`);
+      assert(!/jump-target|mtc-anchor|<!--/u.test(text), `${key} に目印が入った`);
+    }
+    await sleep(2500);
+    const dom = await p.eval("(() => { const root = document.getElementById('preview'); const w = document.createTreeWalker(root, NodeFilter.SHOW_COMMENT); const els = [...root.querySelectorAll('*')]; return { comment: w.nextNode() !== null, jump: root.querySelectorAll('.jump-target, .jump-fade').length, ids: els.filter((el) => el.id && !/^mtc-fn(ref)?-\\d+$/u.test(el.id)).length, data: els.filter((el) => [...el.attributes].some((a) => a.name.startsWith('data-') && !(el.classList.contains('mtc-image') && a.name === 'data-alt'))).length, emptyClass: els.filter((el) => el.getAttribute('class') === '').length }; })()");
+    assert(!dom.comment && dom.jump === 0 && dom.ids === 0 && dom.data === 0 && dom.emptyClass === 0, `プレビューの DOM: ${JSON.stringify(dom)}`);
+    await p.dblclickPreview("h1");
+    await p.click("[aria-controls='headingMenu']");
+    await p.click("[data-format='h2']");
+    assert((await p.value()).split("\n")[3] === "## 見出し1", "ダブルクリックの後に見出し2にならない");
+    await p.key("z", { ctrl: true });
+    assert(await p.value() === JUMP_D1, "見出し2を1回の Undo で戻せない");
+    await p.dblclickPreview("h1");
+    await p.setClipboard("貼");
+    await p.key("v", { ctrl: true });
+    assert((await p.value()).split("\n")[3] === "貼# 見出し1", `貼り付けの位置: ${(await p.value()).split("\n")[3]}`);
+    await p.key("z", { ctrl: true });
+    assert(await p.value() === JUMP_D1, "貼り付けを1回の Undo で戻せない");
+    const storedAfter = await p.eval("chrome.storage.local.get(null)");
+    assert(JSON.stringify(storedAfter) === JSON.stringify(storedBefore), `保存した設定が変わった: ${JSON.stringify(storedAfter)}`);
+  });
+
+  await check("位置の連動 T-27: 狭い画面（編集欄が上）でも同じように動く", async () => {
+    const p = await openJumpEditor(JUMP_D1, { width: 800, height: 900 });
+    const layout = await p.eval("(() => { const s = window.__j.E().getBoundingClientRect(); const v = document.querySelector('.preview-pane').getBoundingClientRect(); return { stacked: s.bottom <= v.top + 1 }; })()");
+    assert(layout.stacked, "編集欄が上にない");
+    const point = await p.clickLine(23, 0.5);
+    await sleep(200);
+    await expectShown(p, "狭い画面の L23", "TR", "a1");
+    const placed = await p.eval(`window.__j.placed(${point.r})`);
+    assert(placed.ok, `狭い画面の位置: ${JSON.stringify(placed)}`);
+    for (const [selector, line] of [["h1", 4], ["tbody tr:nth-child(2) td", 24]]) {
+      const at = await p.dblclickPreview(selector);
+      const s = await p.eval("window.__j.state()");
+      assert(s.line === line && s.start === await p.eval(`window.__j.lineStart(${line})`), `狭い画面の ${selector}: L${s.line}`);
+      const caret = await p.eval(`window.__j.caretPlaced(${line}, ${at.r})`);
+      const visible = await p.eval(`(() => { const e = window.__j.E(); const y = window.__j.lineTop(${line}) - e.scrollTop; return y >= 0 && y < e.clientHeight; })()`);
+      assert(caret.ok && visible, `狭い画面の行の位置: ${JSON.stringify(caret)} / 見える ${visible}`);
+    }
+    await p.click("#toggleSource");
+    await p.dblclickPreview("h1");
+    const s = await p.eval("({ ...window.__j.state(), open: document.getElementById('workspace').classList.contains('source-open') })");
+    assert(s.open && s.line === 4, `狭い画面で閉じた後: ${JSON.stringify({ open: s.open, line: s.line })}`);
+  });
+
+  await check("位置の連動 T-28: アニメーションを減らす設定では一度に消し、通常は徐々に薄くする。ダークでも色が見える", async () => {
+    const p = await openJumpEditor(JUMP_D1);
+    const sample = async () => {
+      await p.eval("window.__j.P().scrollTop = 0");
+      await sleep(2000);
+      const base = await p.eval("getComputedStyle(document.querySelector('#preview h1')).backgroundColor");
+      await p.clickLine(4, 0.2);
+      return p.eval(`new Promise((resolve) => {
+        const h = document.querySelector('#preview h1');
+        const shown = getComputedStyle(h).backgroundColor;
+        const mo = new MutationObserver(() => {
+          if (h.classList.contains('jump-target')) return;
+          mo.disconnect();
+          const cs = getComputedStyle(h);
+          const first = { bg: cs.backgroundColor, duration: cs.transitionDuration, shadow: cs.boxShadow };
+          setTimeout(() => resolve({ base: ${JSON.stringify(base)}, shown, first, later: getComputedStyle(h).backgroundColor }), 100);
+        });
+        mo.observe(h, { attributes: true });
+      })`);
+    };
+    await p.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }, { name: "prefers-color-scheme", value: "light" }] });
+    let s = await sample();
+    assert(s.shown !== s.base, `示す色が付かない: ${JSON.stringify(s)}`);
+    assert(/^0s(, 0s)*$/u.test(s.first.duration) && s.first.bg === s.base, `減らす設定で徐々に消えた: ${JSON.stringify(s)}`);
+    await p.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }, { name: "prefers-color-scheme", value: "light" }] });
+    s = await sample();
+    assert(/0\.6s/u.test(s.first.duration) && s.later !== s.shown && s.later !== s.base, `通常で徐々に薄くならない: ${JSON.stringify(s)}`);
+    await p.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }] });
+    await sleep(2000);
+    await p.clickLine(4, 0.2);
+    await sleep(100);
+    const dark = await p.eval("({ shown: getComputedStyle(document.querySelector('#preview h1')).backgroundColor, pane: getComputedStyle(window.__j.P()).backgroundColor, body: getComputedStyle(document.querySelector('.preview-pane')).backgroundColor })");
+    assert(dark.shown !== dark.pane && dark.shown !== dark.body, `ダークで示す色が背景と同じ: ${JSON.stringify(dark)}`);
+    await p.screenshot("21-jump-dark");
+    await p.send("Emulation.setEmulatedMedia", { features: [] });
+  });
+
+  await check("位置の連動 T-29: 編集欄で折り返す文書でも、行を同じ高さに出す", async () => {
+    const para = "あ".repeat(300);
+    const D4 = [...Array.from({ length: 20 }, () => [para, ""]).flat(), "# 目標W", "", ...Array.from({ length: 20 }, () => [para, ""]).flat()].join("\n").replace(/\n$/u, "");
+    const p = await openJumpEditor(D4);
+    await p.dblclickPreview("h1", { at: 0.4 });
+    const s = await p.eval("window.__j.state()");
+    const target = await p.eval("window.__j.E().value.indexOf('# 目標W')");
+    assert(s.start === target && s.focus === "source", `カーソル: ${s.start} / 期待 ${target}`);
+    const measured = await p.eval(`(() => { const e = window.__j.E(); return { y: window.__j.wrappedTop(${target}) - e.scrollTop, want: 0.4 * e.clientHeight, lh: window.__j.lh() }; })()`);
+    assert(Math.abs(measured.y - measured.want) <= measured.lh, `折り返す行の位置: ${JSON.stringify(measured)}`);
+    const point = await p.eval(`window.__j.pointForOffset(${target}, 0.5)`);
+    await p.mouse(point.x, point.y);
+    await sleep(200);
+    await expectShown(p, "# 目標W", "H1", "目標W");
+  });
+
+  await check("位置の連動 T-32: 約10万字で、対応表を作っても描画が遅くならず、クリックで示す", async () => {
+    const unit = JUMP_D1.split("\n").slice(3).join("\n");
+    let D6 = unit;
+    while (D6.length < 100000) {
+      D6 += `\n\n${unit}`;
+    }
+    // 7部品すべてを有効にすると、対応表がなくても約10万字の描画に数秒かかり手動更新になる（1.2.1 からの既存の性質）。
+    // そのため「自動更新のまま」ではなく、対応表の有無で描画の時間が変わらないことを、部品なし・7部品の両方で確かめる
+    // 短い塊ばかりの D6 は目印が約1万4千個になる最悪に近い文書なので 1.6倍＋60ms、普通の文章は 1.3倍＋50ms を上限とする
+    const prose = Array.from({ length: 300 }, (_, i) => `## 節${i}\n\n${"日本語の文章です。".repeat(30)}\n\n- 項目A\n- 項目B\n`).join("\n");
+    const probe = await openEditor();
+    await probe.eval(`window.__docs = ${JSON.stringify({ dense: D6, prose })}`);
+    const timing = await probe.eval(`(async () => {
+      const { createRenderer } = await import("./core/render.js");
+      const r = createRenderer(window, {});
+      const measure = (src, features, anchors) => {
+        let best = Infinity;
+        for (let i = 0; i < 3; i++) {
+          const t = performance.now();
+          r.renderDocument(src, { features, anchors });
+          best = Math.min(best, performance.now() - t);
+        }
+        return Math.round(best);
+      };
+      const all = ${JSON.stringify(["alerts", "footnotes", "math", "containers", "highlight", "wikilinks", "deflists"])};
+      const { dense, prose } = window.__docs;
+      measure(dense, [], true);
+      return {
+        none: measure(dense, [], false), noneAnchors: measure(dense, [], true),
+        all: measure(dense, all, false), allAnchors: measure(dense, all, true),
+        prose: measure(prose, [], false), proseAnchors: measure(prose, [], true),
+      };
+    })()`);
+    console.log(`    ${D6.length.toLocaleString()} 字（短い塊ばかり）の描画: 部品なし ${timing.none}ms → 対応表あり ${timing.noneAnchors}ms / 7部品 ${timing.all}ms → ${timing.allAnchors}ms`);
+    console.log(`    ${prose.length.toLocaleString()} 字（普通の文章）の描画: ${timing.prose}ms → 対応表あり ${timing.proseAnchors}ms`);
+    assert(timing.noneAnchors <= timing.none * 1.6 + 60 && timing.allAnchors <= timing.all * 1.6 + 60, `対応表で描画が遅くなった（短い塊）: ${JSON.stringify(timing)}`);
+    assert(timing.proseAnchors <= timing.prose * 1.3 + 50, `対応表で描画が遅くなった（普通の文章）: ${JSON.stringify(timing)}`);
+    const p = await openJumpEditor(D6, { paste: true });
+    const middle = await p.eval("(() => { const v = window.__j.E().value; return v.indexOf('\\n# 見出し1', Math.floor(v.length / 2)) + 1; })()");
+    const point = await p.eval(`window.__j.pointForOffset(${middle}, 0.4)`);
+    const started = Date.now();
+    await p.mouse(point.x, point.y);
+    let shown = [];
+    for (let i = 0; i < 100 && shown.length === 0; i++) {
+      shown = await p.eval("window.__j.shown()");
+      if (shown.length === 0) {
+        await sleep(20);
+      }
+    }
+    assert(shown.length === 1 && shown[0].tag === "H1", `中ほどの見出し: ${JSON.stringify(shown)}`);
+    console.log(`    ${D6.length.toLocaleString()} 字: クリックから示すまで ${Date.now() - started}ms（CDP の往復を含む）`);
   });
 
   await check("Console に未処理のエラー・警告がない", async () => {

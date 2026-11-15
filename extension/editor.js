@@ -6,6 +6,7 @@ import { formatEdit } from "./core/formatter.js";
 import { buildDownloadName, buildMarkdownBlob } from "./core/download.js";
 import { FEATURES, GITHUB_PRESET, normalizeFeatures, usesOutsideDefinitions } from "./core/extensions.js";
 import { choosePaste } from "./core/htmlpaste.js";
+import { findAnchor, countNewlines, blockLineCount, lineOffsetInBlock } from "./core/anchors.js";
 import { loadDefaultFeatures, saveDefaultFeatures, loadPasteHtml, savePasteHtml, watchPasteHtml } from "./settings.js";
 
 const FEATURE_LABELS = {
@@ -21,6 +22,9 @@ const FEATURE_LABELS = {
 const AUTO_UPDATE_LIMIT = 200_000; // これより長い原文は手動更新にする（文字数）
 const SLOW_RENDER_MS = 400; // 1回の変換がこれより遅ければ手動更新に切り替える
 const UPDATE_DELAY_MS = 300;
+const JUMP_SHOW_MS = 1200; // 位置の連動で移った箇所を示す時間
+const JUMP_FADE_MS = 650; // 示すのをやめてから薄くし終えるまで（CSS の transition と合わせる）
+const LINK_DBLCLICK_MS = 1000; // リンクを押してからこの間のダブルクリックでは、編集欄へ移らない
 
 const t = (key, ...subs) => chrome.i18n.getMessage(key, subs.map(String)) || key;
 const $ = (id) => document.getElementById(id);
@@ -42,6 +46,11 @@ const state = {
   features: [], // このタブで有効な追加構文
   pasteHtml: false, // 書式付きテキスト（HTML）を Markdown に変換して貼り付けるか（保存した設定。初期値 OFF）
   pasteHintDismissed: false, // 書式の取り込みの案内を、このタブで閉じたか
+  pending: false, // 編集をまだプレビューへ反映していないか
+  anchors: [], // 表示中のプレビューの塊と原文の位置の対応（§3.2）
+  anchorByElement: new Map(), // 要素 -> 対応
+  jumpTimer: 0,
+  linkClickedAt: -Infinity, // 最後にプレビューのリンクを押した時刻（event.timeStamp）
 };
 
 localize();
@@ -118,6 +127,14 @@ function bindSource(el) {
   for (const type of ["select", "keyup", "mouseup"]) {
     el.addEventListener(type, updateSelectionButton);
   }
+  // クリックでカーソルを置いたら、その行から作られたプレビューの箇所へ移る（範囲の選択・Shift+クリックでは動かさない）
+  el.addEventListener("click", (event) => {
+    if (event.button !== 0 || event.shiftKey || event.detail > 1 || state.composing || el.selectionStart !== el.selectionEnd) {
+      return;
+    }
+    const rect = el.getBoundingClientRect();
+    jumpToPreview(el.selectionStart, ratioIn(event.clientY - rect.top - el.clientTop, el.clientHeight));
+  });
   // 設定が ON で、書式付きテキストを Markdown にできるときだけ、標準の貼り付けの代わりに変換結果を入れる（Undo 1回で戻る）
   el.addEventListener("paste", (event) => {
     const markdown = convertPaste(event.clipboardData);
@@ -190,6 +207,12 @@ function bindCommands() {
       return;
     }
     event.preventDefault();
+    // 脚注などのリンクでプレビューが動いた後の2回目のクリックは、別の要素のダブルクリックになるので移らない（1.3.0）
+    state.linkClickedAt = event.timeStamp;
+    // ダブルクリックの2回目のクリックでは、もう一度開かない（1.3.0）
+    if (event.detail > 1) {
+      return;
+    }
     const href = (link.getAttribute("href") ?? "").trim();
     if (/^(?:https?:|mailto:)/iu.test(href)) {
       window.open(href, "_blank", "noopener,noreferrer");
@@ -198,6 +221,23 @@ function bindCommands() {
       const target = preview.querySelector(`[id="${CSS.escape(href.slice(1))}"]`);
       target?.scrollIntoView({ block: "center" });
     }
+  });
+  // ダブルクリックした箇所の元の行へ、編集欄のカーソルを移す（リンクの上では移さない）
+  preview.addEventListener("dblclick", (event) => {
+    if (event.button !== 0 || event.target.closest("a") || event.timeStamp - state.linkClickedAt < LINK_DBLCLICK_MS) {
+      return;
+    }
+    const rect = scroller.getBoundingClientRect();
+    let target = event.target;
+    if (state.pending && !state.manual) {
+      // 反映前の編集があれば先にプレビューを更新し、同じ位置にある要素で求め直す（手動更新のときは最後の対応を使う）
+      updatePreview();
+      target = document.elementFromPoint(event.clientX, event.clientY);
+      if (!target || !preview.contains(target) || target.closest("a")) {
+        return;
+      }
+    }
+    jumpToSource(target, event.clientY, ratioIn(event.clientY - rect.top - scroller.clientTop, scroller.clientHeight));
   });
   preview.addEventListener("auxclick", (event) => {
     if (event.target.closest("a")) {
@@ -468,6 +508,7 @@ function setSourceVisible(visible) {
 
 function onSourceChanged() {
   updateEmptyState();
+  state.pending = true;
   clearTimeout(state.timer);
   state.timer = setTimeout(() => updatePreview(), UPDATE_DELAY_MS);
 }
@@ -496,9 +537,10 @@ function updatePreview({ force = false } = {}) {
   }
 
   let result;
+  state.pending = false;
   const started = performance.now();
   try {
-    result = renderer.renderDocument(text, { unwrapFence: state.unwrapFence, features: state.features });
+    result = renderer.renderDocument(text, { unwrapFence: state.unwrapFence, features: state.features, anchors: true });
   } catch {
     showStatus(t("renderFailed"), { error: true, refresh: true });
     return;
@@ -506,7 +548,10 @@ function updatePreview({ force = false } = {}) {
   const elapsed = performance.now() - started;
 
   const top = scroller.scrollTop;
+  clearTimeout(state.jumpTimer);
   preview.replaceChildren(result.fragment);
+  state.anchors = result.anchors ?? [];
+  state.anchorByElement = new Map(state.anchors.map((anchor) => [anchor.element, anchor]));
   scroller.scrollTop = top;
 
   updateFenceBanner(result);
@@ -528,6 +573,144 @@ function updatePreview({ force = false } = {}) {
     showStatus(notes.join(" "), { refresh: state.manual });
   } else {
     hideStatus();
+  }
+}
+
+// ---- 編集欄とプレビューの位置の連動（§3.2） ----
+
+/** 表示領域の中での高さの割合（0〜1）。 */
+function ratioIn(y, height) {
+  return height > 0 ? Math.min(1, Math.max(0, y / height)) : 0;
+}
+
+/** プレビューの表示領域の内容の中での、要素の上端の位置。 */
+function topInScroller(element) {
+  return element.getBoundingClientRect().top - scroller.getBoundingClientRect().top - scroller.clientTop + scroller.scrollTop;
+}
+
+/** 表の原文の行（0始まり。1行目が見出し、2行目が区切り）に対応する行の要素。 */
+function tableRowForLine(table, line) {
+  const rows = table.rows;
+  if (rows.length === 0) {
+    return table;
+  }
+  return rows[Math.min(rows.length - 1, Math.max(0, line - 1))];
+}
+
+/** 原文の位置 offset から作られたプレビューの箇所を、表示領域の ratio の高さに出して示す。 */
+function jumpToPreview(offset, ratio) {
+  if (state.pending && !state.manual) {
+    // 反映前の編集があれば、先にプレビューを更新する（手動更新のときは最後の対応を使う）
+    updatePreview();
+  }
+  const anchor = findAnchor(state.anchors, offset);
+  if (!anchor) {
+    scroller.scrollTop = 0;
+    return;
+  }
+  const text = source.value;
+  const line = countNewlines(text, anchor.start, Math.min(offset, text.length));
+  let target = anchor.element;
+  let y;
+  if (anchor.type === "table" && target.nodeName === "TABLE") {
+    target = tableRowForLine(target, line);
+    y = topInScroller(target);
+  } else {
+    const lines = blockLineCount(text, anchor);
+    y = topInScroller(target) + (Math.min(line, lines - 1) / lines) * target.getBoundingClientRect().height;
+  }
+  scroller.scrollTop = y - ratio * scroller.clientHeight;
+  showJumpTarget(target);
+}
+
+/** ダブルクリックしたプレビューの箇所の元の行の先頭にカーソルを置き、その行を編集欄の ratio の高さに出す。 */
+function jumpToSource(node, clientY, ratio) {
+  const byElement = state.anchorByElement;
+  let element = node.nodeType === 1 ? node : node.parentElement;
+  while (element && element !== preview && !byElement.has(element)) {
+    element = element.parentElement;
+  }
+  const anchor = element && element !== preview ? byElement.get(element) : null;
+  if (!anchor) {
+    return;
+  }
+  const text = source.value;
+  let line;
+  if (anchor.type === "table" && element.nodeName === "TABLE") {
+    // 見出し行→1行目、本文の n 行目→n+2 行目（区切りの行を飛ばす）
+    const row = node.nodeType === 1 ? node.closest("tr") : node.parentElement?.closest("tr");
+    const index = row && element.contains(row) ? [...element.rows].indexOf(row) : 0;
+    line = index <= 0 ? 0 : index + 1;
+  } else {
+    const rect = element.getBoundingClientRect();
+    const lines = blockLineCount(text, anchor);
+    line = Math.min(lines - 1, Math.floor(ratioIn(clientY - rect.top, rect.height) * lines));
+  }
+  // 手動更新で古い対応を使うときも、原文の長さを超えない（lineOffsetInBlock がそろえる）
+  const offset = lineOffsetInBlock(text, anchor, line);
+  if (!workspace.classList.contains("source-open")) {
+    setSourceVisible(true);
+  }
+  source.focus({ preventScroll: true });
+  source.setSelectionRange(offset, offset);
+  source.scrollTop = caretTop(source, offset) - ratio * source.clientHeight;
+  updateSelectionButton();
+}
+
+/**
+ * 編集欄の内容の中での、offset の位置の行の上端（scrollTop と同じ基準）。
+ * 編集欄は折り返して表示するので、同じ幅・字形・余白・折り返しの見えない要素に offset の前までを入れて測る。
+ */
+function caretTop(textarea, offset) {
+  const style = getComputedStyle(textarea);
+  const mirror = document.createElement("div");
+  for (const name of [
+    "fontFamily", "fontSize", "fontWeight", "fontStyle", "letterSpacing", "wordSpacing", "lineHeight", "tabSize",
+    "textTransform", "textIndent", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "whiteSpace", "wordBreak", "overflowWrap",
+  ]) {
+    mirror.style[name] = style[name];
+  }
+  Object.assign(mirror.style, {
+    position: "absolute",
+    visibility: "hidden",
+    top: "0",
+    left: "-10000px",
+    boxSizing: "border-box",
+    border: "0",
+    width: `${textarea.clientWidth}px`,
+    whiteSpace: "pre-wrap",
+    overflowWrap: style.overflowWrap === "normal" ? "break-word" : style.overflowWrap,
+    overflow: "hidden",
+  });
+  mirror.textContent = textarea.value.slice(0, offset);
+  const mark = document.createElement("span");
+  mark.textContent = "​";
+  mirror.append(mark);
+  document.body.append(mirror);
+  const top = mark.offsetTop;
+  mirror.remove();
+  return top;
+}
+
+/** 移った箇所を約1秒示し、その後に徐々に薄くする（OSでアニメーションを減らしていれば一度に消す。CSS）。 */
+function showJumpTarget(target) {
+  clearTimeout(state.jumpTimer);
+  for (const old of preview.querySelectorAll(".jump-target, .jump-fade")) {
+    clearJumpClass(old, ["jump-target", "jump-fade"]);
+  }
+  target.classList.add("jump-target");
+  state.jumpTimer = setTimeout(() => {
+    target.classList.add("jump-fade");
+    target.classList.remove("jump-target");
+    state.jumpTimer = setTimeout(() => clearJumpClass(target, ["jump-fade"]), JUMP_FADE_MS);
+  }, JUMP_SHOW_MS);
+}
+
+/** 示すための class を外す。ほかの class がなければ属性も消し、表示前の DOM に戻す。 */
+function clearJumpClass(element, names) {
+  element.classList.remove(...names);
+  if (element.classList.length === 0) {
+    element.removeAttribute("class");
   }
 }
 
@@ -724,6 +907,10 @@ function resetWorkspace() {
   state.unwrapFence = false;
   state.manual = false;
   state.composing = false;
+  state.pending = false;
+  state.anchors = [];
+  state.anchorByElement = new Map();
+  clearTimeout(state.jumpTimer);
   preview.replaceChildren();
   scroller.scrollTop = 0;
   $("fenceBanner").hidden = true;

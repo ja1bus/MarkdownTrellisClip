@@ -4,6 +4,7 @@ import { Marked } from "../vendor/marked.esm.js";
 import createDOMPurify from "../vendor/purify.es.mjs";
 import { splitFrontmatter, detectOuterFence, unwrapOuterFence } from "./syntax.js";
 import { buildMarkedOptions, applyAlerts, detectFeatures, normalizeFeatures } from "./extensions.js";
+import { anchorExtension, createAnchorRequest, insertAnchors, captureMarker, resolveAnchors } from "./anchors.js";
 
 /** Markdown が生成する要素と、生HTMLで許可する要素。 */
 export const ALLOWED_TAGS = Object.freeze([
@@ -111,6 +112,14 @@ export function createRenderer(win, options = {}) {
     ADD_URI_SAFE_ATTR: ["align", "colspan", "rowspan", "start", "type"],
     RETURN_DOM_FRAGMENT: true,
   };
+  // 描画1回分の対応表の依頼（§3.2）。同期処理の parse と sanitize の間だけ設定する
+  let anchorRequest = null;
+  // 目印のコメントは DOMPurify が消す前に、対応する要素を記録する
+  purify.addHook("uponSanitizeElement", (node) => {
+    if (anchorRequest && node.nodeType === 8) {
+      captureMarker(anchorRequest, node);
+    }
+  });
 
   /** 部品の組み合わせごとに解析器を作り、使い回す。 */
   function markedFor(features) {
@@ -119,6 +128,12 @@ export function createRenderer(win, options = {}) {
     if (!instance) {
       instance = new Marked({ gfm: true, breaks: false, async: false });
       instance.use(buildMarkedOptions(features));
+      instance.use({
+        extensions: [anchorExtension],
+        hooks: {
+          processAllTokens: (tokens) => (anchorRequest ? insertAnchors(tokens, anchorRequest) : tokens),
+        },
+      });
       markedByFeatures.set(key, instance);
     }
     return instance;
@@ -128,17 +143,26 @@ export function createRenderer(win, options = {}) {
    * Markdown を安全な DocumentFragment にする。
    * @param {string} markdown
    * @param {string[]} [featureList] 有効にする追加構文
-   * @returns {{ fragment: DocumentFragment, imageCount: number, removedCount: number }}
+   * @param {{ anchorBase?: number }} [opts] anchorBase を渡すと、原文での位置（markdown の先頭が anchorBase）の対応表も返す
+   * @returns {{ fragment: DocumentFragment, imageCount: number, removedCount: number, anchors?: object[] }}
    */
-  function renderMarkdown(markdown, featureList = []) {
+  function renderMarkdown(markdown, featureList = [], opts = {}) {
     const features = normalizeFeatures(featureList);
-    const html = stripEventHandlers(markedFor(features).parse(markdown));
-    const fragment = purify.sanitize(html, config);
+    const request = typeof opts.anchorBase === "number" ? createAnchorRequest(markdown, opts.anchorBase) : null;
+    let fragment;
+    anchorRequest = request;
+    try {
+      const html = stripEventHandlers(markedFor(features).parse(markdown));
+      fragment = purify.sanitize(html, config);
+    } finally {
+      anchorRequest = null;
+    }
     // 断片を返す設定では、包みの BODY も「除外」として記録されるので数えない
     const removedCount = purify.removed.filter((entry) => entry.element && entry.element.nodeType === 1 && !["BODY", "HTML", "HEAD"].includes(entry.element.nodeName)).length;
     const imageCount = replaceImages(fragment, win.document, imageLabel);
-    if (features.includes("alerts")) {
-      applyAlerts(fragment, win.document);
+    const replaced = features.includes("alerts") ? applyAlerts(fragment, win.document) : new Map();
+    if (request) {
+      return { fragment, imageCount, removedCount, anchors: resolveAnchors(fragment, request, replaced) };
     }
     return { fragment, imageCount, removedCount };
   }
@@ -148,16 +172,19 @@ export function createRenderer(win, options = {}) {
    * unwrapFence が true で全文フェンスがあれば外側の行も除外する。原文は変更しない。
    * @param {string} source
    * detected は追加構文らしい箇所の件数（有効かどうかに関係なく数える）。
-   * @param {{ unwrapFence?: boolean, features?: string[] }} [opts]
+   * anchors が true なら、位置の連動の対応表 anchors（原文での位置と要素。§3.2）も返す。
+   * @param {{ unwrapFence?: boolean, features?: string[], anchors?: boolean }} [opts]
    */
   function renderDocument(source, opts = {}) {
-    const { body } = splitFrontmatter(source);
+    const { frontmatter, body } = splitFrontmatter(source);
     const fence = detectOuterFence(body);
-    const markdown = fence && opts.unwrapFence ? unwrapOuterFence(body, fence) : body;
+    const unwrap = Boolean(fence && opts.unwrapFence);
+    const markdown = unwrap ? unwrapOuterFence(body, fence) : body;
+    const anchorBase = frontmatter.length + (unwrap ? fence.innerStart : 0);
     return {
-      ...renderMarkdown(markdown, opts.features),
+      ...renderMarkdown(markdown, opts.features, opts.anchors ? { anchorBase } : {}),
       fence: fence !== null,
-      fenceApplied: Boolean(fence && opts.unwrapFence),
+      fenceApplied: unwrap,
       detected: detectFeatures(markdown),
     };
   }
