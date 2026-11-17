@@ -27,7 +27,7 @@
     "message": "Markdown"
   },
   "copyMarkdownTitle": {
-    "message": "Copy the editor text exactly as it is"
+    "message": "Copy the editor text exactly as it is (Ctrl+Shift+M)"
   },
   "copyRich": {
     "message": "Copy Formatted"
@@ -36,7 +36,7 @@
     "message": "Formatted"
   },
   "copyRichTitle": {
-    "message": "Copy with the preview's formatting, for pasting into email, chat, and similar apps"
+    "message": "Copy with the preview's formatting, for pasting into email, chat, and similar apps (Ctrl+Shift+C)"
   },
   "copySelection": {
     "message": "Copy Selection Formatted"
@@ -219,7 +219,7 @@
     "message": "$1. $2"
   },
   "fmtHeading": {
-    "message": "Heading (levels 1–3)"
+    "message": "Headings (levels 1–3, and shifting all heading levels)"
   },
   "fmtHeadingShort": {
     "message": "Heading"
@@ -385,5 +385,125 @@
   },
   "pasteFailed": {
     "message": "Could not paste"
+  },
+  "fmtBoldName": {
+    "message": "Bold"
+  },
+  "fmtLinkTitle": {
+    "message": "Link (Ctrl+K)"
+  },
+  "fmtCodeTitle": {
+    "message": "Inline code (Ctrl+E)"
+  },
+  "fmtItalicTitle": {
+    "message": "Italic (Ctrl+I)"
+  },
+  "fmtHeadingDown": {
+    "message": "Demote headings one level"
+  },
+  "fmtHeadingUp": {
+    "message": "Promote headings one level"
+  },
+  "searchMenu": {
+    "message": "Find and replace…"
+  },
+  "keysMenu": {
+    "message": "Keyboard shortcuts…"
+  },
+  "searchTitle": {
+    "message": "Find and replace"
+  },
+  "searchPlaceholder": {
+    "message": "Find"
+  },
+  "replacePlaceholder": {
+    "message": "Replace with"
+  },
+  "searchPrev": {
+    "message": "Previous"
+  },
+  "searchPrevTitle": {
+    "message": "Previous (Shift+Enter)"
+  },
+  "searchNext": {
+    "message": "Next"
+  },
+  "searchNextTitle": {
+    "message": "Next (Enter)"
+  },
+  "searchCase": {
+    "message": "Match case"
+  },
+  "searchClose": {
+    "message": "Close the find bar"
+  },
+  "searchCloseTitle": {
+    "message": "Close (Esc)"
+  },
+  "replaceOne": {
+    "message": "Replace"
+  },
+  "replaceAll": {
+    "message": "Replace all"
+  },
+  "searchPosition": {
+    "message": "$1 / $2"
+  },
+  "searchTotal": {
+    "message": "$1 matches"
+  },
+  "searchNone": {
+    "message": "No matches"
+  },
+  "replacedAll": {
+    "message": "Replaced $1 matches"
+  },
+  "statsText": {
+    "message": "$1 characters · $2 lines · $3 words"
+  },
+  "statsSelection": {
+    "message": "Selection: $1 characters · $2 lines"
+  },
+  "statsNoWords": {
+    "message": "—"
+  },
+  "tocButton": {
+    "message": "Contents"
+  },
+  "tocTitle": {
+    "message": "Go to a heading"
+  },
+  "keysTitle": {
+    "message": "Keyboard shortcuts"
+  },
+  "keysEditor": {
+    "message": "Editor"
+  },
+  "keysEnter": {
+    "message": "Continue the list or quote marker on the next line (on a line with only the marker, end the list)"
+  },
+  "keysShiftEnter": {
+    "message": "New line without the marker"
+  },
+  "keysTab": {
+    "message": "Indent or outdent list items (on other lines, move the focus)"
+  },
+  "keysPasteUrl": {
+    "message": "Paste a URL over selected text to make a link"
+  },
+  "keysUndo": {
+    "message": "Undo / Redo"
+  },
+  "keysAnywhere": {
+    "message": "Anywhere"
+  },
+  "keysPasteOutside": {
+    "message": "Paste into the editor even when the focus is elsewhere"
+  },
+  "keysSearch": {
+    "message": "Find bar"
+  },
+  "keysSearchNext": {
+    "message": "Next match / previous match"
   }
 }

@@ -513,6 +513,11 @@ svg .dot {
   vertical-align: -1px;
 }
 
+/* 1.4.0: 押すと原文の [ ] と [x] を切り替える（仕様 §3.4） */
+.markdown-body input[type="checkbox"] {
+  cursor: pointer;
+}
+
 .markdown-body li:has(> input[type="checkbox"]) {
   list-style: none;
 }
@@ -916,4 +921,204 @@ svg .dot {
     flex-basis: 100%;
     order: 3;
   }
+}
+
+/* ---- 1.4.0 ---- */
+
+.menu-sep {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--border);
+}
+
+/* 検索と置換（仕様 §2.3）。書式ボタンの下・編集欄の上 */
+.search-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.search-bar[hidden] {
+  display: none;
+}
+
+.search-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.search-input {
+  flex: 1 1 140px;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+
+.search-input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -1px;
+}
+
+.search-bar button {
+  padding: 2px 8px;
+}
+
+.search-count {
+  min-width: 4.5em;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.search-case {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.search-bar .search-close {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 6px;
+}
+
+/* 編集欄と、検索の現在の一致を示す枠の層 */
+.source-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.search-highlight {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.search-mark {
+  position: absolute;
+  border-radius: 2px;
+  background: rgb(255 200 0 / 40%);
+  box-shadow: 0 0 0 1px rgb(214 150 0 / 90%);
+}
+
+@media (prefers-color-scheme: dark) {
+  .search-mark {
+    background: rgb(255 200 0 / 30%);
+    box-shadow: 0 0 0 1px rgb(255 210 80 / 90%);
+  }
+}
+
+/* 文字数・行数・語数（仕様 §1） */
+.stats {
+  padding: 2px 10px 3px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 目次（仕様 §3.3）。プレビューの右上に重ね、行を取らない */
+.preview-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.toc-wrap {
+  position: absolute;
+  top: 6px;
+  right: 22px;
+  z-index: 15;
+}
+
+.toc-wrap[hidden] {
+  display: none;
+}
+
+#tocButton {
+  padding: 2px 8px;
+  font-size: 12px;
+  background: var(--surface);
+  color: var(--muted);
+  opacity: 0.92;
+}
+
+#tocButton:hover,
+#tocButton[aria-expanded="true"] {
+  color: var(--text);
+  opacity: 1;
+}
+
+.toc-menu {
+  min-width: 200px;
+  max-width: min(420px, 70vw);
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.toc-menu [role="menuitem"] {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: none;
+}
+
+/* キーボード操作の一覧 */
+.keys-dialog {
+  max-width: min(560px, 92vw);
+}
+
+.keys-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+}
+
+.keys-table th {
+  text-align: left;
+  padding: 10px 4px 4px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.keys-table td {
+  padding: 3px 4px;
+  vertical-align: top;
+}
+
+.keys-table td:first-child {
+  white-space: nowrap;
+  padding-right: 12px;
+}
+
+.keys-table kbd {
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--code-bg);
 }

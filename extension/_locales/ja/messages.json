@@ -27,7 +27,7 @@
     "message": "Markdown"
   },
   "copyMarkdownTitle": {
-    "message": "編集欄の内容をそのままテキストでコピー"
+    "message": "編集欄の内容をそのままテキストでコピー (Ctrl+Shift+M)"
   },
   "copyRich": {
     "message": "書式付きでコピー"
@@ -36,7 +36,7 @@
     "message": "書式付き"
   },
   "copyRichTitle": {
-    "message": "プレビューの書式のままコピー（メールやチャットなどに貼り付け）"
+    "message": "プレビューの書式のままコピー（メールやチャットなどに貼り付け） (Ctrl+Shift+C)"
   },
   "copySelection": {
     "message": "選択範囲を書式付きでコピー"
@@ -219,7 +219,7 @@
     "message": "$1。$2"
   },
   "fmtHeading": {
-    "message": "見出し（見出し1〜3）"
+    "message": "見出し（見出し1〜3、見出しのレベルの一括変更）"
   },
   "fmtHeadingShort": {
     "message": "見出し"
@@ -385,5 +385,125 @@
   },
   "pasteFailed": {
     "message": "貼り付けられませんでした"
+  },
+  "fmtBoldName": {
+    "message": "太字"
+  },
+  "fmtLinkTitle": {
+    "message": "リンク (Ctrl+K)"
+  },
+  "fmtCodeTitle": {
+    "message": "インラインコード (Ctrl+E)"
+  },
+  "fmtItalicTitle": {
+    "message": "斜体 (Ctrl+I)"
+  },
+  "fmtHeadingDown": {
+    "message": "見出しを1段下げる"
+  },
+  "fmtHeadingUp": {
+    "message": "見出しを1段上げる"
+  },
+  "searchMenu": {
+    "message": "検索と置換…"
+  },
+  "keysMenu": {
+    "message": "キーボード操作…"
+  },
+  "searchTitle": {
+    "message": "検索と置換"
+  },
+  "searchPlaceholder": {
+    "message": "検索"
+  },
+  "replacePlaceholder": {
+    "message": "置換後"
+  },
+  "searchPrev": {
+    "message": "前へ"
+  },
+  "searchPrevTitle": {
+    "message": "前へ (Shift+Enter)"
+  },
+  "searchNext": {
+    "message": "次へ"
+  },
+  "searchNextTitle": {
+    "message": "次へ (Enter)"
+  },
+  "searchCase": {
+    "message": "大文字と小文字を区別"
+  },
+  "searchClose": {
+    "message": "検索バーを閉じる"
+  },
+  "searchCloseTitle": {
+    "message": "閉じる (Esc)"
+  },
+  "replaceOne": {
+    "message": "置換"
+  },
+  "replaceAll": {
+    "message": "すべて置換"
+  },
+  "searchPosition": {
+    "message": "$1 / $2"
+  },
+  "searchTotal": {
+    "message": "$1 件"
+  },
+  "searchNone": {
+    "message": "見つかりません"
+  },
+  "replacedAll": {
+    "message": "$1 件を置換しました"
+  },
+  "statsText": {
+    "message": "$1 文字 · $2 行 · $3 語"
+  },
+  "statsSelection": {
+    "message": "選択 $1 文字 · $2 行"
+  },
+  "statsNoWords": {
+    "message": "—"
+  },
+  "tocButton": {
+    "message": "目次"
+  },
+  "tocTitle": {
+    "message": "見出しへ移動"
+  },
+  "keysTitle": {
+    "message": "キーボード操作"
+  },
+  "keysEditor": {
+    "message": "編集欄"
+  },
+  "keysEnter": {
+    "message": "リスト・引用の記号を次の行に続ける（記号だけの行ではリストを終える）"
+  },
+  "keysShiftEnter": {
+    "message": "記号を続けずに改行"
+  },
+  "keysTab": {
+    "message": "リストの項目を字下げ／字下げ解除（リスト以外の行ではフォーカスを移す）"
+  },
+  "keysPasteUrl": {
+    "message": "文字を選んで URL を貼り付けると、リンクにする"
+  },
+  "keysUndo": {
+    "message": "元に戻す／やり直し"
+  },
+  "keysAnywhere": {
+    "message": "画面全体"
+  },
+  "keysPasteOutside": {
+    "message": "編集欄の外でも、編集欄に貼り付ける"
+  },
+  "keysSearch": {
+    "message": "検索バー"
+  },
+  "keysSearchNext": {
+    "message": "次の一致／前の一致"
   }
 }

@@ -33,8 +33,10 @@
           <span aria-hidden="true">▾</span>
         </button>
         <div id="settingsMenu" class="menu menu-right" role="menu" hidden>
+          <button type="button" role="menuitem" id="openSearch" data-i18n="searchMenu"></button>
           <button type="button" role="menuitem" id="openSyntax" data-i18n="syntaxMenu"></button>
           <button type="button" role="menuitem" id="openPaste" data-i18n="pasteMenu"></button>
+          <button type="button" role="menuitem" id="openKeys" data-i18n="keysMenu"></button>
           <button type="button" role="menuitem" id="about" data-i18n="aboutButton"></button>
         </div>
       </div>
@@ -50,20 +52,23 @@
             <button type="button" role="menuitem" data-format="h1" class="h1" data-i18n="fmtH1"></button>
             <button type="button" role="menuitem" data-format="h2" class="h2" data-i18n="fmtH2"></button>
             <button type="button" role="menuitem" data-format="h3" class="h3" data-i18n="fmtH3"></button>
+            <div class="menu-sep" role="separator"></div>
+            <button type="button" role="menuitem" data-format="headingDown" data-i18n="fmtHeadingDown"></button>
+            <button type="button" role="menuitem" data-format="headingUp" data-i18n="fmtHeadingUp"></button>
           </div>
         </div>
-        <button type="button" data-format="bold" data-i18n-title="fmtBold" data-i18n-aria="fmtBold" class="text-icon bold">B</button>
+        <button type="button" data-format="bold" data-i18n-title="fmtBold" data-i18n-aria="fmtBoldName" class="text-icon bold">B</button>
         <button type="button" data-format="bullet" data-i18n-title="fmtBullet" data-i18n-aria="fmtBullet"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4h8M6 8h8M6 12h8"/><circle cx="2.8" cy="4" r=".9" class="dot"/><circle cx="2.8" cy="8" r=".9" class="dot"/><circle cx="2.8" cy="12" r=".9" class="dot"/></svg></button>
         <button type="button" data-format="ordered" data-i18n-title="fmtOrdered" data-i18n-aria="fmtOrdered"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 4H14M6.5 8H14M6.5 12H14M2.3 2.8 3.2 2.3v3.2M2 10.6c.3-.6 1.7-.7 1.7.2 0 .7-1.7 1.2-1.7 2.1h1.8"/></svg></button>
         <button type="button" data-format="task" data-i18n-title="fmtTask" data-i18n-aria="fmtTask"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.8" y="2.5" width="4" height="4" rx=".6"/><path d="M8 4.5h6M8 11.5h6M2.6 11.3l1 1 1.7-2"/><rect x="1.8" y="9.5" width="4" height="4" rx=".6"/></svg></button>
-        <button type="button" data-format="link" data-i18n-title="fmtLink" data-i18n-aria="fmtLink"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M7 9a2.8 2.8 0 0 0 4 0l2.2-2.2a2.8 2.8 0 0 0-4-4L8.4 3.6M9 7a2.8 2.8 0 0 0-4 0L2.8 9.2a2.8 2.8 0 0 0 4 4l.8-.8"/></svg></button>
+        <button type="button" data-format="link" data-i18n-title="fmtLinkTitle" data-i18n-aria="fmtLink"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M7 9a2.8 2.8 0 0 0 4 0l2.2-2.2a2.8 2.8 0 0 0-4-4L8.4 3.6M9 7a2.8 2.8 0 0 0-4 0L2.8 9.2a2.8 2.8 0 0 0 4 4l.8-.8"/></svg></button>
         <button type="button" data-format="table" data-i18n-title="fmtTable" data-i18n-aria="fmtTable"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="1"/><path d="M2 6.5h12M2 9.8h12M8 3v10"/></svg></button>
-        <button type="button" data-format="code" data-i18n-title="fmtCode" data-i18n-aria="fmtCode"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 4 2 8l3.5 4M10.5 4 14 8l-3.5 4"/></svg></button>
+        <button type="button" data-format="code" data-i18n-title="fmtCodeTitle" data-i18n-aria="fmtCode"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 4 2 8l3.5 4M10.5 4 14 8l-3.5 4"/></svg></button>
         <button type="button" data-format="codeblock" data-i18n-title="fmtCodeBlock" data-i18n-aria="fmtCodeBlock"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.8" y="2.5" width="12.4" height="11" rx="1.2"/><path d="M6 6.3 4.3 8 6 9.7M10 6.3 11.7 8 10 9.7"/></svg></button>
         <div class="menu-wrap">
           <button type="button" class="menu-button" aria-haspopup="menu" aria-expanded="false" aria-controls="moreMenu" data-i18n-title="fmtMoreTitle"><span data-i18n="fmtMore"></span> <span aria-hidden="true">▾</span></button>
           <div id="moreMenu" class="menu" role="menu" hidden>
-            <button type="button" role="menuitem" data-format="italic" data-i18n="fmtItalic"></button>
+            <button type="button" role="menuitem" data-format="italic" data-i18n="fmtItalic" data-i18n-title="fmtItalicTitle"></button>
             <button type="button" role="menuitem" data-format="strike" data-i18n="fmtStrike"></button>
             <button type="button" role="menuitem" data-format="quote" data-i18n="fmtQuote"></button>
             <button type="button" role="menuitem" data-format="image" data-i18n="fmtImage"></button>
@@ -72,7 +77,26 @@
         </div>
         <button type="button" id="pasteStatus" class="paste-status" data-i18n-title="pasteStatusTitle"></button>
       </div>
-      <textarea id="source" class="source" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" wrap="soft" data-i18n-placeholder="sourcePlaceholder" data-i18n-aria="sourceLabel"></textarea>
+      <div id="searchBar" class="search-bar" role="search" data-i18n-aria="searchTitle" hidden>
+        <div class="search-row">
+          <input type="text" id="searchQuery" class="search-input" spellcheck="false" autocomplete="off" data-i18n-placeholder="searchPlaceholder" data-i18n-aria="searchPlaceholder">
+          <span id="searchCount" class="search-count" aria-live="polite"></span>
+          <button type="button" id="searchPrev" data-i18n-title="searchPrevTitle" data-i18n-aria="searchPrev">↑</button>
+          <button type="button" id="searchNext" data-i18n-title="searchNextTitle" data-i18n-aria="searchNext">↓</button>
+          <label class="search-case"><input type="checkbox" id="searchCase"><span data-i18n="searchCase"></span></label>
+          <button type="button" id="searchClose" class="search-close" data-i18n-title="searchCloseTitle" data-i18n-aria="searchClose">×</button>
+        </div>
+        <div class="search-row">
+          <input type="text" id="searchReplace" class="search-input" spellcheck="false" autocomplete="off" data-i18n-placeholder="replacePlaceholder" data-i18n-aria="replacePlaceholder">
+          <button type="button" id="replaceOne" data-i18n="replaceOne"></button>
+          <button type="button" id="replaceAll" data-i18n="replaceAll"></button>
+        </div>
+      </div>
+      <div id="sourceWrap" class="source-wrap">
+        <textarea id="source" class="source" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" wrap="soft" data-i18n-placeholder="sourcePlaceholder" data-i18n-aria="sourceLabel"></textarea>
+        <div id="searchHighlight" class="search-highlight" aria-hidden="true"></div>
+      </div>
+      <div id="stats" class="stats"></div>
     </section>
 
     <section class="pane preview-pane" data-i18n-aria="previewLabel">
@@ -93,12 +117,18 @@
         <span id="previewStatusText"></span>
         <button type="button" id="refreshPreview" data-i18n="refresh" hidden></button>
       </div>
-      <div id="previewScroller" class="preview-scroller" tabindex="0" data-i18n-aria="previewLabel">
-        <div id="emptyHint" class="empty-hint">
-          <p class="empty-title" data-i18n="previewEmpty"></p>
-          <p class="empty-sub" data-i18n="previewEmptySub"></p>
+      <div class="preview-body">
+        <div id="tocWrap" class="menu-wrap toc-wrap" hidden>
+          <button type="button" id="tocButton" class="menu-button" aria-haspopup="menu" aria-expanded="false" aria-controls="tocMenu" data-i18n-title="tocTitle"><span data-i18n="tocButton"></span> <span aria-hidden="true">▾</span></button>
+          <div id="tocMenu" class="menu menu-right toc-menu" role="menu" hidden></div>
         </div>
-        <article id="preview" class="markdown-body"></article>
+        <div id="previewScroller" class="preview-scroller" tabindex="0" data-i18n-aria="previewLabel">
+          <div id="emptyHint" class="empty-hint">
+            <p class="empty-title" data-i18n="previewEmpty"></p>
+            <p class="empty-sub" data-i18n="previewEmptySub"></p>
+          </div>
+          <article id="preview" class="markdown-body"></article>
+        </div>
       </div>
     </section>
   </main>
@@ -150,6 +180,37 @@
       <div class="dialog-actions">
         <button type="submit" value="cancel" data-i18n="cancel"></button>
         <button type="submit" value="ok" class="primary" data-i18n="saveSettings"></button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="keysDialog" class="dialog keys-dialog" aria-labelledby="keysDialogTitle">
+    <form method="dialog">
+      <h2 id="keysDialogTitle" data-i18n="keysTitle"></h2>
+      <table class="keys-table">
+        <tbody>
+          <tr><th colspan="2" data-i18n="keysEditor"></th></tr>
+          <tr><td><kbd>Ctrl+B</kbd></td><td data-i18n="fmtBoldName"></td></tr>
+          <tr><td><kbd>Ctrl+I</kbd></td><td data-i18n="fmtItalic"></td></tr>
+          <tr><td><kbd>Ctrl+K</kbd></td><td data-i18n="fmtLink"></td></tr>
+          <tr><td><kbd>Ctrl+E</kbd></td><td data-i18n="fmtCode"></td></tr>
+          <tr><td><kbd>Enter</kbd></td><td data-i18n="keysEnter"></td></tr>
+          <tr><td><kbd>Shift+Enter</kbd></td><td data-i18n="keysShiftEnter"></td></tr>
+          <tr><td><kbd>Tab</kbd> / <kbd>Shift+Tab</kbd></td><td data-i18n="keysTab"></td></tr>
+          <tr><td><kbd>Ctrl+V</kbd></td><td data-i18n="keysPasteUrl"></td></tr>
+          <tr><td><kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd></td><td data-i18n="keysUndo"></td></tr>
+          <tr><th colspan="2" data-i18n="keysAnywhere"></th></tr>
+          <tr><td><kbd>Ctrl+Shift+C</kbd></td><td data-i18n="copyRich"></td></tr>
+          <tr><td><kbd>Ctrl+Shift+M</kbd></td><td data-i18n="copyMarkdown"></td></tr>
+          <tr><td><kbd>Ctrl+H</kbd></td><td data-i18n="searchTitle"></td></tr>
+          <tr><td><kbd>Ctrl+V</kbd></td><td data-i18n="keysPasteOutside"></td></tr>
+          <tr><th colspan="2" data-i18n="keysSearch"></th></tr>
+          <tr><td><kbd>Enter</kbd> / <kbd>Shift+Enter</kbd></td><td data-i18n="keysSearchNext"></td></tr>
+          <tr><td><kbd>Esc</kbd></td><td data-i18n="searchClose"></td></tr>
+        </tbody>
+      </table>
+      <div class="dialog-actions">
+        <button type="submit" value="close" data-i18n="close" autofocus></button>
       </div>
     </form>
   </dialog>

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { formatEdit, applyEdit } from "../extension/core/formatter.js";
+import { formatEdit, applyEdit, continueList, indentList, linkPaste } from "../extension/core/formatter.js";
 
 /** "|" をカーソル、"[" "]" を選択範囲として書いた文字列で操作を試す。 */
 function run(command, marked) {
@@ -139,4 +139,205 @@ test("水平線: 独立した行に置き、前の行の文字を見出しにし
   assert.equal(run("hr", "本文|"), "本文\n\n---|");
   assert.equal(run("hr", "前\n|\n後"), "前\n\n---|\n\n後");
   assert.equal(run("hr", "|"), "---|");
+});
+
+// ---- 1.4.0: Enter・Tab（仕様 §2.2）、見出しのシフト、URL の貼り付け ----
+
+/** "‸" をカーソル、"«" "»" を選択として書いた文字列。 */
+function at(marked) {
+  const caret = marked.indexOf("‸");
+  if (caret >= 0) {
+    return { text: marked.replace("‸", ""), start: caret, end: caret };
+  }
+  const start = marked.indexOf("«");
+  const text = marked.replace("«", "");
+  const end = text.indexOf("»");
+  return { text: text.replace("»", ""), start, end };
+}
+
+function shown(text, edit) {
+  const result = applyEdit(text, edit);
+  if (edit.selStart === edit.selEnd) {
+    return result.slice(0, edit.selStart) + "‸" + result.slice(edit.selStart);
+  }
+  return result.slice(0, edit.selStart) + "«" + result.slice(edit.selStart, edit.selEnd) + "»" + result.slice(edit.selEnd);
+}
+
+function enter(marked) {
+  const { text, start, end } = at(marked);
+  const edit = continueList(text, start, end);
+  return edit && shown(text, edit);
+}
+
+function tab(marked, outdent = false) {
+  const { text, start, end } = at(marked);
+  const edit = indentList(text, start, end, outdent);
+  return edit && shown(text, edit);
+}
+
+test("F1: Enter で箇条書き・番号付き・チェックリスト・引用の記号を続ける", () => {
+  assert.equal(enter("- 項目A‸"), "- 項目A\n- ‸");
+  assert.equal(enter("* 項目B‸"), "* 項目B\n* ‸");
+  assert.equal(enter("+ 項目C‸"), "+ 項目C\n+ ‸");
+  assert.equal(enter("1. 番号‸"), "1. 番号\n2. ‸");
+  assert.equal(enter("9) 番号‸"), "9) 番号\n10) ‸");
+  assert.equal(enter("- [x] 済み‸"), "- [x] 済み\n- [ ] ‸");
+  assert.equal(enter("- [ ] 未‸"), "- [ ] 未\n- [ ] ‸");
+  assert.equal(enter("> 引用‸"), "> 引用\n> ‸");
+  assert.equal(enter("> - 引用のリスト‸"), "> - 引用のリスト\n> - ‸");
+  assert.equal(enter("> > a‸"), "> > a\n> > ‸");
+  assert.equal(enter("  - 入れ子‸"), "  - 入れ子\n  - ‸");
+  assert.equal(enter("- 前半‸後半"), "- 前半\n- ‸後半");
+  assert.equal(enter("1.  a‸"), "1.  a\n2.  ‸");
+  assert.equal(enter("-\ta‸"), "-\ta\n-\t‸");
+  assert.equal(enter("\t- a‸"), "\t- a\n\t- ‸");
+  assert.equal(enter("1. a‸\n2. b"), "1. a\n2. ‸\n2. b");
+});
+
+test("F1: 記号だけの行の Enter は記号を消して空行にする", () => {
+  assert.equal(enter("- 項目\n- ‸"), "- 項目\n‸");
+  assert.equal(enter("1. a\n2. ‸"), "1. a\n‸");
+  assert.equal(enter("- [ ] ‸"), "‸");
+  assert.equal(enter("> ‸"), "‸");
+  assert.equal(enter("  - ‸"), "‸");
+  assert.equal(enter("-    ‸"), "‸");
+  assert.equal(enter("- a\n- ‸\n- c"), "- a\n‸\n- c");
+});
+
+test("F1: 範囲の選択・記号の途中・リストでない行・水平線では Enter に介入しない", () => {
+  assert.equal(enter("- «項目»"), null);
+  assert.equal(enter("段落‸"), null);
+  assert.equal(enter("  字下げの段落‸"), null);
+  assert.equal(enter("‸- a"), null);
+  assert.equal(enter("-‸ a"), null);
+  assert.equal(enter("- [‸x] a"), null);
+  assert.equal(enter("* * *‸"), null);
+  assert.equal(enter("- - -‸"), null);
+  assert.equal(enter("-abc‸"), null);
+  // 記号の後ろに空白がない行（下線の見出しの「-」・「1.」だけ）は、消さずに標準の改行に任せる
+  assert.equal(enter("見出し\n-‸"), null);
+  assert.equal(enter("1.‸"), null);
+  assert.equal(enter("*‸"), null);
+});
+
+test("F1: Tab は直前の同じ字下げの項目の記号の幅だけ字下げする", () => {
+  assert.equal(tab("- a\n- b‸"), "- a\n  - b‸");
+  assert.equal(tab("1. a\n2. b‸"), "1. a\n   2. b‸");
+  assert.equal(tab("10. a\n11. b‸"), "10. a\n    11. b‸");
+  assert.equal(tab("- [ ] a\n- [ ] b‸"), "- [ ] a\n  - [ ] b‸");
+  assert.equal(tab("- a‸"), "  - a‸");
+  assert.equal(tab("1. a‸"), "   1. a‸");
+  assert.equal(tab("- a\n  続き\n\n- b‸"), "- a\n  続き\n\n  - b‸");
+  assert.equal(tab("10. a\n- b‸"), "10. a\n    - b‸");
+  assert.equal(tab("- x\n- ab‸c"), "- x\n  - ab‸c");
+  // 選択した行をすべて同じ量だけ字下げし、空行は変えない
+  assert.equal(tab("- a\n«- b\n\n- c»"), "- a\n«  - b\n\n  - c»");
+});
+
+test("F1: Shift+Tab は親の位置まで戻す。字下げがなければ何も変えずにキーを受け取る", () => {
+  assert.equal(tab("- a\n  - b‸", true), "- a\n- b‸");
+  assert.equal(tab("1. a\n   - b‸", true), "1. a\n- b‸");
+  assert.equal(tab("- a\n  - b\n    - c‸", true), "- a\n  - b\n  - c‸");
+  assert.equal(tab("   - a‸", true), "- a‸");
+  assert.equal(tab("- a\n\t- b‸", true), "- a\n- b‸");
+  assert.equal(tab("- p\n«    - a\n  - b»", true), "- p\n«- a\n- b»");
+  const { text, start, end } = at("- a‸");
+  const edit = indentList(text, start, end, true);
+  assert.ok(edit && edit.start === edit.end && edit.insert === "", "字下げがない項目は変えない Edit");
+});
+
+test("F1: リストでない行を含むと Tab・Shift+Tab に介入しない", () => {
+  assert.equal(tab("段落‸"), null);
+  assert.equal(tab("段落‸", true), null);
+  assert.equal(tab("«- a\n段落\n- b»"), null);
+  assert.equal(tab("> - a‸"), null);
+});
+
+function shift(marked, command) {
+  const { text, start, end } = at(marked);
+  const edit = formatEdit(command, text, start, end);
+  return edit && shown(text, edit);
+}
+
+test("F2: 見出しを1段下げる・上げる（未選択なら文書全体。Frontmatter・コードの中・下線の見出しは変えない）", () => {
+  const doc = [
+    "---", "# yamlコメント", "---", "# 見出し1", "## 見出し2", "##### 見出し5", "###### 見出し6", "#ハッシュ",
+    "本文の # は行頭でない‸", "   ## 字下げ3", "", "```md", "# コードの中", "```", "", "~~~", "## チルダの中", "~~~", "", "見出しS", "===",
+  ].join("\n");
+  const down = shift(doc, "headingDown");
+  assert.equal(down, doc.replace("# 見出し1", "## 見出し1").replace("## 見出し2", "### 見出し2").replace("##### 見出し5", "###### 見出し5").replace("   ## 字下げ3", "   ### 字下げ3"));
+  const up = shift(doc, "headingUp");
+  assert.equal(up, doc.replace("## 見出し2", "# 見出し2").replace("##### 見出し5", "#### 見出し5").replace("###### 見出し6", "##### 見出し6").replace("   ## 字下げ3", "   # 字下げ3"));
+});
+
+test("F2: 範囲を選択していればその行だけ。選択の文字の位置を保つ。変わる見出しがなければ null", () => {
+  assert.equal(shift("# A\n# «B»\n# C", "headingDown"), "# A\n## «B»\n# C");
+  assert.equal(shift("«# A\n# B\n»# C", "headingDown"), "«## A\n## B\n»# C");
+  assert.equal(shift("#\n本文‸", "headingDown"), "##\n本文‸");
+  assert.equal(shift("段落\n- 項目‸", "headingDown"), null);
+  assert.equal(shift("段落\n- 項目‸", "headingUp"), null);
+  assert.equal(shift("```markdown\n# 外\n## 中\n```‸", "headingDown"), null);
+  // 1回の置き換えは、変わる範囲だけに縮める
+  const text = "あ\n# A\nい\n# B\nう";
+  const edit = formatEdit("headingDown", text, 0, 0);
+  assert.equal(applyEdit(text, edit), "あ\n## A\nい\n## B\nう");
+  assert.ok(edit.start >= 2 && edit.end <= 10, `変わる範囲だけ: ${JSON.stringify(edit)}`);
+});
+
+function pasteUrl(marked, clip) {
+  const { text, start, end } = at(marked);
+  const edit = linkPaste(text, start, end, clip);
+  return edit && shown(text, edit);
+}
+
+test("F3: 文字を選んで URL を貼り付けると [文字](URL) にする", () => {
+  assert.equal(pasteUrl("リンク先の«説明»", "https://example.com/a?b=1"), "リンク先の[説明](https://example.com/a?b=1)‸");
+  assert.equal(pasteUrl("リンク先の«説明»", "http://example.com/"), "リンク先の[説明](http://example.com/)‸");
+  assert.equal(pasteUrl("リンク先の«説明»", "mailto:user@example.com"), "リンク先の[説明](mailto:user@example.com)‸");
+  assert.equal(pasteUrl("リンク先の«説明»", "  https://example.com/x \n"), "リンク先の[説明](https://example.com/x)‸");
+  assert.equal(pasteUrl("前« 説明 »後", "https://example.com"), "前 [説明](https://example.com)‸ 後");
+  assert.equal(pasteUrl("前 «説明» 後", "HTTPS://EXAMPLE.COM"), "前 [説明](HTTPS://EXAMPLE.COM)‸ 後");
+  assert.equal(pasteUrl("前 «説明» 後", "https://example.com/日本語"), "前 [説明](https://example.com/日本語)‸ 後");
+});
+
+test("F3: URL でない・選択が URL・改行を含む・未選択・空白だけなら通常の貼り付け", () => {
+  assert.equal(pasteUrl("前 «説明» 後", "example.com"), null);
+  assert.equal(pasteUrl("前 «説明» 後", "ftp://example.com"), null);
+  assert.equal(pasteUrl("前 «説明» 後", "https://exa mple.com"), null);
+  assert.equal(pasteUrl("前 «説明» 後", "https://a.example\nhttps://b.example"), null);
+  assert.equal(pasteUrl("«https://old.example»", "https://new.example"), null);
+  assert.equal(pasteUrl("«前\n説明»", "https://example.com"), null);
+  assert.equal(pasteUrl("前«   »後", "https://example.com"), null);
+  assert.equal(pasteUrl("前 ‸説明 後", "https://example.com"), null);
+  assert.equal(pasteUrl("前 «説明» 後", ""), null);
+});
+
+// ---- 2026-11-17 コードレビュー（docs/archive/code-review-20261117.md）の指摘の回帰確認 ----
+
+test("レビュー R3: 行頭のインラインコードの後ろの見出しも変える（有効なフェンスの中は従来どおり変えない）", () => {
+  assert.equal(shift("```inline```\n# Actual\n‸", "headingDown"), "```inline```\n## Actual\n‸");
+  assert.equal(shift("```a`b\n# Actual\n‸", "headingDown"), "```a`b\n## Actual\n‸");
+  assert.equal(shift("```inline```\n## Actual\n‸", "headingUp"), "```inline```\n# Actual\n‸");
+  assert.equal(shift("```inline```\n«# Actual»\n", "headingDown"), "```inline```\n«## Actual»\n");
+  const text = "```inline```\n# Actual\n";
+  assert.equal(applyEdit(text, formatEdit("headingDown", text, 0, 0)), "```inline```\n## Actual\n");
+  // 有効なフェンス（情報文字列あり・チルダ・閉じない・長い閉じフェンス）の中は変えない
+  assert.equal(shift("```js\n# 中\n```\n# 外‸", "headingDown"), "```js\n# 中\n```\n## 外‸");
+  assert.equal(shift("~~~ a`b\n# 中\n~~~\n# 外‸", "headingDown"), "~~~ a`b\n# 中\n~~~\n## 外‸");
+  assert.equal(shift("```\n# 中\n‸", "headingDown"), null);
+  assert.equal(shift("````\n# 中\n```\n# まだ中\n``````\n# 外‸", "headingDown"), "````\n# 中\n```\n# まだ中\n``````\n## 外‸");
+});
+
+test("レビュー R5: 水平線の行では Tab・Shift+Tab に介入しない", () => {
+  for (const line of ["* * *", "- - -", "***", "---", "  * * *", "-\t-\t-", "_ _ _", "* * * "]) {
+    assert.equal(tab(`${line}‸`), null, line);
+    assert.equal(tab(`${line}‸`, true), null, line);
+  }
+  assert.equal(tab("«- a\n* * *\n- b»"), null);
+  assert.equal(tab("«- a\n- - -»", true), null);
+  // 水平線の後ろのリストは、水平線を飛ばして字下げ量を決める
+  assert.equal(tab("- a\n* * *\n- b‸"), "- a\n* * *\n  - b‸");
+  // 通常の項目（記号の後ろに文字）は従来どおり
+  assert.equal(tab("- a\n- b‸"), "- a\n  - b‸");
+  assert.equal(tab("* a * b‸"), "  * a * b‸");
 });

@@ -23,7 +23,8 @@ test("日本語と GFM の代表的な構文を表示用の要素にする", () 
   for (const fragment of [
     "<h1>見出し</h1>", "<strong>太字</strong>", "<em>斜体</em>", "<del>取り消し</del>",
     "<ul>", "<ol>", "<blockquote>", "<table>", "<th align=\"center\">中央</th>",
-    "<input checked=\"\" disabled=\"\" type=\"checkbox\">", "<input disabled=\"\" type=\"checkbox\">",
+    // 1.4.0: チェックボックスは押せるようにした（disabled を外す。仕様 §3.4・§4）
+    "<input checked=\"\" type=\"checkbox\">", "<input type=\"checkbox\">",
     "<a href=\"https://example.com\">", "<a href=\"https://example.org\">リンク</a>",
     "<code>code</code>", "<code class=\"language-js\">", "<hr>",
   ]) {

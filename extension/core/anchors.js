@@ -28,7 +28,21 @@ export const anchorExtension = {
 export function createAnchorRequest(text, base) {
   const nonce = Array.from(crypto.getRandomValues(new Uint8Array(4)), (b) => b.toString(16).padStart(2, "0")).join("");
   // targets: 目印の番号 -> 要素。matched: コメントとして見つかった目印の数
-  return { text, base, nonce, entries: [], pattern: new RegExp(`^m${nonce}-(\\d+)(p?)$`, "u"), targets: new Map(), matched: 0 };
+  // boxes: Markdown のタスクの記号から作ったチェックボックス（本文の生 HTML の input は入らない。§3.4・レビュー R2）
+  return {
+    text, base, nonce, entries: [], pattern: new RegExp(`^m${nonce}-(?:(\\d+)(p?)|(b))$`, "u"),
+    targets: new Map(), matched: 0, boxes: new Set(), boxMarkers: 0,
+  };
+}
+
+/**
+ * タスクのチェックボックスの直前に置く目印（marked の checkbox の描画から呼ぶ）。
+ * 乱数は描画ごとに変わるので、本文に書いた HTML のコメントでは作れない。
+ * @param {{ nonce: string, boxMarkers: number }} request
+ */
+export function checkboxMarker(request) {
+  request.boxMarkers++;
+  return `<!--m${request.nonce}-b-->`;
 }
 
 /**
@@ -134,6 +148,13 @@ export function captureMarker(request, comment) {
     return;
   }
   request.matched++;
+  if (match[3]) {
+    const box = nextElement(comment);
+    if (box?.nodeName === "INPUT") {
+      request.boxes.add(box);
+    }
+    return;
+  }
   const element = match[2] ? comment.parentElement : nextElement(comment);
   if (element) {
     request.targets.set(Number(match[1]), element);
@@ -155,8 +176,8 @@ export function resolveAnchors(fragment, request, replaced = new Map()) {
     }
   }
   // 文字として扱われる場所（閉じていない textarea など）に入った目印は、文字から除く（コメントとして見つからない目印があるときだけ調べる）
-  if (request.matched < request.entries.length) {
-    const text = new RegExp(`<!--m${request.nonce}-\\d+p?-->`, "gu");
+  if (request.matched < request.entries.length + request.boxMarkers) {
+    const text = new RegExp(`<!--m${request.nonce}-(?:\\d+p?|b)-->`, "gu");
     const textWalker = fragment.ownerDocument.createTreeWalker(fragment, SHOW_TEXT);
     for (let node = textWalker.nextNode(); node; node = textWalker.nextNode()) {
       if (node.data.includes(request.nonce)) {
@@ -191,7 +212,12 @@ export function resolveAnchors(fragment, request, replaced = new Map()) {
     while (end > entry.start && request.text[end - 1] === "\n") {
       end--;
     }
-    anchors.push({ start: request.base + entry.start, end: request.base + end, element, type: entry.type });
+    const anchor = { start: request.base + entry.start, end: request.base + end, element, type: entry.type };
+    if (entry.type === "list_item") {
+      // その項目自身のタスクのチェックボックス（入れ子の項目のものは除く）。なければ null
+      anchor.checkbox = [...element.querySelectorAll("input")].find((box) => request.boxes.has(box) && box.closest("li") === element) ?? null;
+    }
+    anchors.push(anchor);
   }
   // アラートは先頭の [!NOTE] の行を段落から除いて見出しにするので、枠と同じ行から始まる中の段落は次の行からにする
   const byNode = new Map(anchors.map((anchor) => [anchor.element, anchor]));
@@ -282,4 +308,55 @@ function nextElement(node) {
     }
   }
   return null;
+}
+
+// ---- 1.4.0: 目次（§3.3）とチェックボックスの切り替え（§3.4） ----
+
+/**
+ * 対応表から見出しの一覧を作る（目次）。type が heading のもの（HTML で書いた見出しは html なので含まない）。
+ * 文字は要素の textContent（空白を詰める）。文字が空の見出しは除く。
+ * @param {{ type: string, element: Element }[]} anchors
+ * @param {number} [limit]
+ * @returns {{ level: number, text: string, anchor: object }[]}
+ */
+export function headingList(anchors, limit = 200) {
+  const list = [];
+  for (const anchor of anchors) {
+    if (list.length >= limit) {
+      break;
+    }
+    if (anchor.type !== "heading") {
+      continue;
+    }
+    const level = Number(/^H([1-6])$/u.exec(anchor.element.nodeName)?.[1] ?? 0);
+    const text = (anchor.element.textContent ?? "").replace(/\s+/gu, " ").trim();
+    if (level > 0 && text !== "") {
+      list.push({ level, text, anchor });
+    }
+  }
+  return list;
+}
+
+const TASK_BOX = /^(\s*(?:[-*+]|\d{1,9}[.)])[ \t]+\[)( |x|X)(\])/u;
+
+/**
+ * リストの項目の対応から、原文のチェックの1文字を切り替える Edit（選択は変えないので selStart・selEnd は null）。
+ * 項目の最初の行がチェックリストでなければ null（引用の中など）。
+ * @param {string} text
+ * @param {{ start: number, type: string }} anchor
+ * @returns {{ start: number, end: number, insert: string, checked: boolean } | null} checked は切り替える前の状態
+ */
+export function toggleTaskEdit(text, anchor) {
+  if (!anchor || anchor.type !== "list_item" || anchor.start > text.length) {
+    return null;
+  }
+  const newline = text.indexOf("\n", anchor.start);
+  const line = text.slice(anchor.start, newline < 0 ? text.length : newline);
+  const m = TASK_BOX.exec(line);
+  if (!m) {
+    return null;
+  }
+  const at = anchor.start + m[1].length;
+  const checked = m[2] !== " ";
+  return { start: at, end: at + 1, insert: checked ? " " : "x", checked };
 }

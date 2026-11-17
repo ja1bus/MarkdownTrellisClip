@@ -437,7 +437,8 @@ export function maskCode(text) {
   const masked = lines.map((line) => {
     const match = /^ {0,3}(`{3,}|~{3,})/u.exec(line);
     if (fence === null) {
-      if (match) {
+      // バッククォートのフェンスは、情報文字列にバッククォートがあれば開始にならない（CommonMark。レビュー R3）
+      if (match && !(match[1][0] === "`" && line.slice(match[0].length).includes("`"))) {
         fence = match[1];
         return " ".repeat(line.length);
       }

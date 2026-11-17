@@ -12,6 +12,8 @@ This repository contains the source code of the publicly released MarkdownTrelli
 - Paste formatted text (off by default; turn it on in ⚙ > Paste settings… or with "Formatted paste" above the editor): formatted (HTML) text copied from an AI answer or elsewhere comes in as Markdown headings, bold, lists, tables, links and code. Text without formatting and Markdown source are pasted as they are
 - GitHub Flavored Markdown: headings, emphasis, lists, task lists, tables, strikethrough, links, autolinks, code, quotes and horizontal rules
 - Click a line in the editor to bring the matching part of the preview into view; double-click the preview to move the editor cursor to that line
+- Keyboard: Enter continues lists, checklists and quotes; Tab / Shift+Tab indent list items. Ctrl+B, Ctrl+I, Ctrl+K, Ctrl+E (formatting), Ctrl+Shift+C (copy formatted), Ctrl+Shift+M (copy Markdown), Ctrl+H (find)
+- Find and replace in the editor, paste a URL over selected text to make a link, raise or lower all heading levels, a table of contents for the preview, click preview checkboxes to switch [ ] and [x], and character, line and word counts
 - Formatting buttons: headings, bold, italic, strikethrough, lists, checklists, links, images, tables, inline code, code blocks, quotes and horizontal rules (each action is undone with one Ctrl+Z)
 - Copy Markdown (the editor text as is), Copy Formatted (HTML with inline styles plus matching plain text) and Copy Selection Formatted
 - Detects a code fence that wraps the whole answer and can leave it out of the preview and formatted copy only. Front matter is hidden from the preview and kept in the editor

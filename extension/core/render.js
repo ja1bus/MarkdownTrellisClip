@@ -4,7 +4,7 @@ import { Marked } from "../vendor/marked.esm.js";
 import createDOMPurify from "../vendor/purify.es.mjs";
 import { splitFrontmatter, detectOuterFence, unwrapOuterFence } from "./syntax.js";
 import { buildMarkedOptions, applyAlerts, detectFeatures, normalizeFeatures } from "./extensions.js";
-import { anchorExtension, createAnchorRequest, insertAnchors, captureMarker, resolveAnchors } from "./anchors.js";
+import { anchorExtension, createAnchorRequest, insertAnchors, captureMarker, resolveAnchors, checkboxMarker } from "./anchors.js";
 
 /** Markdown が生成する要素と、生HTMLで許可する要素。 */
 export const ALLOWED_TAGS = Object.freeze([
@@ -15,7 +15,7 @@ export const ALLOWED_TAGS = Object.freeze([
   "details", "summary", "div", "span", "dl", "dt", "dd", "section",
 ]);
 
-const ALLOWED_ATTR = ["href", "title", "alt", "src", "align", "colspan", "rowspan", "start", "type", "checked", "disabled", "open", "class", "id"];
+const ALLOWED_ATTR = ["href", "title", "alt", "src", "align", "colspan", "rowspan", "start", "type", "checked", "open", "class", "id"];
 const ATTR_BY_TAG = {
   a: new Set(["href", "title", "id", "class"]),
   img: new Set(["alt", "title", "src"]),
@@ -23,7 +23,7 @@ const ATTR_BY_TAG = {
   th: new Set(["align", "colspan", "rowspan"]),
   td: new Set(["align", "colspan", "rowspan"]),
   ol: new Set(["start"]),
-  input: new Set(["type", "checked", "disabled"]),
+  input: new Set(["type", "checked"]),
   details: new Set(["open"]),
   code: new Set(["class"]),
   div: new Set(["class"]),
@@ -97,8 +97,9 @@ export function createRenderer(win, options = {}) {
     if (node.nodeName === "INPUT" && node.getAttribute("type") !== "checkbox") {
       node.setAttribute("type", "checkbox");
     }
+    // 1.4.0: チェックボックスは押せるようにする（押したときの既定の動作は画面側で止め、原文を切り替える。§3.4）
     if (node.nodeName === "INPUT") {
-      node.setAttribute("disabled", "");
+      node.removeAttribute("disabled");
     }
   });
 
@@ -129,6 +130,13 @@ export function createRenderer(win, options = {}) {
       instance = new Marked({ gfm: true, breaks: false, async: false });
       instance.use(buildMarkedOptions(features));
       instance.use({
+        // 対応表を作る描画では、タスクのチェックボックスの直前に目印を置く（押したものがタスク由来かを見分ける。§3.4）。
+        // false を返すと marked の標準の描画になる
+        renderer: {
+          checkbox(token) {
+            return anchorRequest ? checkboxMarker(anchorRequest) + `<input ${token.checked ? 'checked="" ' : ""}disabled="" type="checkbox"> ` : false;
+          },
+        },
         extensions: [anchorExtension],
         hooks: {
           processAllTokens: (tokens) => (anchorRequest ? insertAnchors(tokens, anchorRequest) : tokens),
@@ -216,16 +224,123 @@ export function createRenderer(win, options = {}) {
  * @param {string} html
  */
 export function stripEventHandlers(html) {
-  // タグを属性の区切りどおりに読み、名前が on で始まる属性だけを除く（引用符の中の文字は変えない）
-  const TAG = /<([A-Za-z][^\s/>]*)((?:\s*\/?\s*[^\s"'=<>/]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*)\s*(\/?)>/gu;
-  const ATTRIBUTE = /(\s*\/?\s*)([^\s"'=<>/]+)(\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?/gu;
-  return html.replace(TAG, (tag, name, attributes, selfClose) => {
-    if (!/\bon/iu.test(attributes)) {
-      return tag;
+  // 1.4.0: 正規表現の後戻りで指数的に遅くなる入力（閉じない引用符など。R1）があったため、先頭から1回だけ読む。
+  // 区切りの規則は 1.3.0 の正規表現と同じにして、出力を変えない
+  // レビュー R4: タグとして読めなかった範囲を、後ろの < から何度も読み直さない（全体でおおむね線形にする）
+  let out = "";
+  let copied = 0;
+  const memo = {
+    noQuote: { '"': Infinity, "'": Infinity }, // この位置より後ろには、その引用符がない
+    failed: new Set(), // 属性を読み始めて、タグとして読めなかった位置
+    nameEnd: 0, // 直前に読んだタグ名の終わり
+  };
+  for (let i = html.indexOf("<"); i >= 0; ) {
+    const tag = readTag(html, i, memo);
+    if (!tag) {
+      // タグ名の途中の < から読み直しても、同じ名前の残りと同じ続きを読むので、やはり読めない。名前の後ろから探す
+      i = html.indexOf("<", Math.max(i + 1, memo.nameEnd));
+      continue;
     }
-    const kept = attributes.replace(ATTRIBUTE, (attribute, lead, attrName) => (/^on/iu.test(attrName) ? " " : attribute));
-    return `<${name}${kept}${selfClose ? " /" : ""}>`;
-  });
+    // 1.3.0 と同じく、属性の文字に on があるときだけ組み立て直す（このとき > の前の空白は詰める）
+    if (/\bon/iu.test(tag.attributes.map((attribute) => attribute.text).join(""))) {
+      const kept = tag.attributes.map((attribute) => (attribute.event ? " " : attribute.text)).join("");
+      out += html.slice(copied, i) + `<${tag.name}${kept}${tag.selfClose ? " /" : ""}>`;
+      copied = tag.end;
+    }
+    i = html.indexOf("<", tag.end);
+  }
+  return copied === 0 ? html : out + html.slice(copied);
+}
+
+const TAG_NAME = /[A-Za-z][^\s/>]*/uy;
+const ATTRIBUTE_NAME = /[^\s"'=<>/]+/uy;
+const UNQUOTED_VALUE = /[^\s"'=<>`]+/uy;
+const SPACES = /\s*/uy;
+
+function skip(pattern, html, at) {
+  pattern.lastIndex = at;
+  const m = pattern.exec(html);
+  return m ? at + m[0].length : at;
+}
+
+/**
+ * html の at（<）から始まるタグを読む。タグとして読めなければ null。
+ * 属性の前の区切りは「空白・/ 1つまで・空白」、最後は「空白・/（あれば > の直前）・>」（1.3.0 の正規表現と同じ）。
+ */
+function readTag(html, at, memo) {
+  TAG_NAME.lastIndex = at + 1;
+  const name = TAG_NAME.exec(html);
+  memo.nameEnd = at + 1 + (name ? name[0].length : 0);
+  if (!name) {
+    return null;
+  }
+  const attributes = [];
+  let tagName = name[0];
+  let pos = at + 1 + tagName.length;
+  // 名前の直後（空白の後）が = なら、1.3.0 の正規表現は名前の最後の1文字を属性名として読んでいた（後戻り）。同じにする
+  if (html[skip(SPACES, html, pos)] === "=" && tagName.length > 1 && !/["'=<]/u.test(tagName.at(-1))) {
+    tagName = tagName.slice(0, -1);
+    pos--;
+  }
+  // 属性の続きは位置だけで決まる。読めなかったときは、通った位置を覚えて次からすぐ諦める
+  const visited = [];
+  const fail = () => {
+    for (const p of visited) {
+      memo.failed.add(p);
+    }
+    return null;
+  };
+  for (;;) {
+    const lead = pos;
+    if (memo.failed.has(lead)) {
+      return fail();
+    }
+    visited.push(lead);
+    pos = skip(SPACES, html, pos);
+    const slash = html[pos] === "/";
+    if (slash) {
+      pos++;
+    }
+    const afterSlash = pos;
+    pos = skip(SPACES, html, pos);
+    if (html[pos] === ">") {
+      // 「/」と「>」の間に空白があるときは、タグとして読まない（1.3.0 と同じ）
+      if (slash && pos !== afterSlash) {
+        return fail();
+      }
+      return { name: tagName, attributes, selfClose: slash, end: pos + 1 };
+    }
+    ATTRIBUTE_NAME.lastIndex = pos;
+    const attrName = ATTRIBUTE_NAME.exec(html);
+    if (!attrName) {
+      return fail();
+    }
+    pos += attrName[0].length;
+    const beforeValue = pos;
+    let next = skip(SPACES, html, pos);
+    if (html[next] === "=") {
+      next = skip(SPACES, html, next + 1);
+      const quote = html[next];
+      if (quote === '"' || quote === "'") {
+        const close = next + 1 >= memo.noQuote[quote] ? -1 : html.indexOf(quote, next + 1);
+        if (close < 0) {
+          memo.noQuote[quote] = Math.min(memo.noQuote[quote], next + 1);
+          return fail();
+        }
+        pos = close + 1;
+      } else {
+        UNQUOTED_VALUE.lastIndex = next;
+        const value = UNQUOTED_VALUE.exec(html);
+        if (!value) {
+          return fail();
+        }
+        pos = next + value[0].length;
+      }
+    } else {
+      pos = beforeValue;
+    }
+    attributes.push({ text: html.slice(lead, pos), event: /^on/iu.test(attrName[0]) });
+  }
 }
 
 /** 画像を代替テキストの表示に置き換え、その数を返す。 */

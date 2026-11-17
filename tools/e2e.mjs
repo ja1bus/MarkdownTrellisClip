@@ -3,7 +3,7 @@
 // 注意: 画面なしでも Windows の OS クリップボードを使うので、実行中にクリップボードの内容が上書きされる。
 // Windows のクリップボードはテキストの改行を CRLF にするため、読み戻した text/plain は LF に揃えて比べる。
 //
-// 使い方: node tools/e2e.mjs [--lang ja|en] [--chrome <chrome.exe>] [--screenshots <フォルダー>]
+// 使い方: node tools/e2e.mjs [--lang ja|en] [--chrome <chrome.exe>] [--screenshots <フォルダー>] [--only <名前の一部>]
 //
 // Chrome DevTools Protocol の Extensions.loadUnpacked を使う。これは
 // --remote-debugging-pipe と --enable-unsafe-extension-debugging を付けて起動した場合だけ使える。
@@ -23,6 +23,8 @@ const option = (name, fallback) => {
 const lang = option("--lang", "ja");
 const chromePath = option("--chrome", findChrome());
 const screenshotDir = option("--screenshots", null);
+// --only <文字>: 名前にその文字を含む項目だけを行う（開発中の確認用。起動の確認と Console の確認は常に行う）
+const onlyFilter = option("--only", null);
 
 function findChrome() {
   const candidates = [
@@ -105,6 +107,9 @@ const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
 const results = [];
 let currentCheck = "起動";
 async function check(name, fn) {
+  if (onlyFilter && !name.includes(onlyFilter) && !name.startsWith("service worker") && !name.startsWith("Console")) {
+    return;
+  }
   currentCheck = name;
   try {
     let timer;
@@ -730,10 +735,13 @@ try {
     const text = "---\ntitle: 機密の題名\n---\n# 日本語の見出し 🌸\n\n本文\r\n";
     await page2.eval(`(() => { const s = document.getElementById('source'); s.focus(); s.select(); document.execCommand('insertText', false, ${JSON.stringify(text)}); })()`);
     const value = await page2.value();
+    // 完了の待ち受けもクリックの前に登録する（小さなファイルは開始の直後に完了し、後から待つと取りこぼすため。1.4.0 で修正）
     const begin = cdp.waitFor((m) => m.method === "Browser.downloadWillBegin");
+    const completed = cdp.waitFor((m) => m.method === "Browser.downloadProgress" && m.params.state === "completed", 10000);
+    completed.catch(() => {}); // 開始の待ちで失敗したときに、未処理の拒否にしない（下の await では失敗として扱う）
     await page2.click("#download");
     const { params } = await begin;
-    await cdp.waitFor((m) => m.method === "Browser.downloadProgress" && m.params.state === "completed", 10000);
+    await completed;
     assert(/^markdown-trellis-clip-\d{8}-\d{6}\.md$/u.test(params.suggestedFilename), `ファイル名: ${params.suggestedFilename}`);
     const files = readdirSync(downloads);
     const file = files.find((f) => f === params.suggestedFilename) ?? files.find((f) => !f.endsWith(".crdownload"));
@@ -1830,6 +1838,1455 @@ try {
     }
     assert(shown.length === 1 && shown[0].tag === "H1", `中ほどの見出し: ${JSON.stringify(shown)}`);
     console.log(`    ${D6.length.toLocaleString()} 字: クリックから示すまで ${Date.now() - started}ms（CDP の往復を含む）`);
+  });
+
+
+  // ---- 1.4.0（試験表 docs/verification.md の 20261117-features-140） ----
+
+  const ja = lang === "ja";
+  const L140 = {
+    total: (n) => (ja ? `${n} 件` : `${n} matches`),
+    none: ja ? "見つかりません" : "No matches",
+    replaced: (n) => (ja ? `${n} 件を置換しました` : `Replaced ${n} matches`),
+    stats: (c, l, w) => (ja ? `${c} 文字 · ${l} 行 · ${w} 語` : `${c} characters · ${l} lines · ${w} words`),
+    selection: (c, l) => (ja ? `選択 ${c} 文字 · ${l} 行` : `Selection: ${c} characters · ${l} lines`),
+  };
+  const KEY_CODES = { Enter: 13, Tab: 9, Escape: 27, " ": 32, Backspace: 8, ArrowDown: 40, ArrowUp: 38, Insert: 45 };
+
+  /** キーを送る（Alt・Meta・Tab・Space も扱う）。 */
+  async function press(p, key, { ctrl = false, shift = false, alt = false, meta = false } = {}) {
+    const single = key.length === 1 && key !== " ";
+    const code = single ? `Key${key.toUpperCase()}` : key === " " ? "Space" : key;
+    const vk = single ? key.toUpperCase().charCodeAt(0) : KEY_CODES[key];
+    const modifiers = (alt ? 1 : 0) | (ctrl ? 2 : 0) | (meta ? 4 : 0) | (shift ? 8 : 0);
+    const shown = single && shift ? key.toUpperCase() : key;
+    await p.send("Input.dispatchKeyEvent", { type: "rawKeyDown", key: shown, code, windowsVirtualKeyCode: vk, modifiers });
+    if ((key === "Enter" || key === " ") && !ctrl && !alt && !meta) {
+      await p.send("Input.dispatchKeyEvent", { type: "char", key: shown, code, text: key === "Enter" ? "\r" : " ", windowsVirtualKeyCode: vk, modifiers });
+    }
+    await p.send("Input.dispatchKeyEvent", { type: "keyUp", key: shown, code, windowsVirtualKeyCode: vk, modifiers });
+    await sleep(60);
+  }
+
+  /** "‸" をカーソル、"«" "»" を選択として書いた値を編集欄に設定する（value の代入と input）。 */
+  async function setMarked(p, marked, wait = 60) {
+    let text = marked;
+    let start;
+    let end;
+    if (marked.includes("‸")) {
+      start = end = marked.indexOf("‸");
+      text = marked.replace("‸", "");
+    } else if (marked.includes("«")) {
+      start = marked.indexOf("«");
+      text = marked.replace("«", "");
+      end = text.indexOf("»");
+      text = text.replace("»", "");
+    } else {
+      start = end = marked.length;
+    }
+    await p.eval(`(() => { const s = document.getElementById('source'); s.focus(); s.value = ${JSON.stringify(text)}; s.dispatchEvent(new Event('input', { bubbles: true })); s.setSelectionRange(${start}, ${end}); })()`);
+    await sleep(wait);
+    return text;
+  }
+
+  /** 編集欄の値と選択を "‸"・"«»" で書く。 */
+  function marked(p) {
+    return p.eval(`(() => { const s = document.getElementById('source'); const v = s.value; const a = s.selectionStart; const b = s.selectionEnd;
+      return a === b ? v.slice(0, a) + "‸" + v.slice(a) : v.slice(0, a) + "«" + v.slice(a, b) + "»" + v.slice(b); })()`);
+  }
+
+  async function open140({ width = 1280, height = 800 } = {}) {
+    const p = await openEditor();
+    await p.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
+    // 拡張がキーの既定の動作を止めたかを、後から登録した window の keydown で記録する
+    await p.eval("window.__dp = []; window.addEventListener('keydown', (e) => window.__dp.push(e.defaultPrevented))");
+    return p;
+  }
+  const lastPrevented = (p) => p.eval("window.__dp.at(-1)");
+  const active = (p) => p.eval("document.activeElement?.id ?? ''");
+  const text140 = (p, id) => p.eval(`document.getElementById(${JSON.stringify(id)}).textContent`);
+  const visible = (p, id) => p.eval(`(() => { const el = document.getElementById(${JSON.stringify(id)}); return !!el && !el.hidden && el.offsetParent !== null; })()`);
+
+  await check("1.4.0 T-01: Enter でリスト・引用の記号を続け、1回の Undo で戻る", async () => {
+    const p = await open140();
+    const cases = [
+      ["- 項目A‸", "- 項目A\n- ‸"], ["* 項目B‸", "* 項目B\n* ‸"], ["+ 項目C‸", "+ 項目C\n+ ‸"], ["1. 番号‸", "1. 番号\n2. ‸"],
+      ["9) 番号‸", "9) 番号\n10) ‸"], ["- [x] 済み‸", "- [x] 済み\n- [ ] ‸"], ["- [ ] 未‸", "- [ ] 未\n- [ ] ‸"], ["> 引用‸", "> 引用\n> ‸"],
+      ["> - 引用のリスト‸", "> - 引用のリスト\n> - ‸"], ["  - 入れ子‸", "  - 入れ子\n  - ‸"], ["- 前半‸後半", "- 前半\n- ‸後半"],
+    ];
+    for (const [before, after] of cases) {
+      const original = await setMarked(p, before);
+      await press(p, "Enter");
+      assert(await marked(p) === after, `${JSON.stringify(before)} → ${JSON.stringify(await marked(p))}`);
+      await press(p, "z", { ctrl: true });
+      assert(await p.value() === original, `${JSON.stringify(before)} の Undo: ${JSON.stringify(await p.value())}`);
+    }
+  });
+
+  await check("1.4.0 T-02: 記号だけの行の Enter は記号を消し、1回の Undo で戻る", async () => {
+    const p = await open140();
+    const cases = [["- 項目\n- ‸", "- 項目\n‸"], ["1. a\n2. ‸", "1. a\n‸"], ["- [ ] ‸", "‸"], ["> ‸", "‸"], ["  - ‸", "‸"], ["-    ‸", "‸"], ["- a\n- ‸\n- c", "- a\n‸\n- c"]];
+    for (const [before, after] of cases) {
+      const original = await setMarked(p, before);
+      await press(p, "Enter");
+      assert(await marked(p) === after, `${JSON.stringify(before)} → ${JSON.stringify(await marked(p))}`);
+      await press(p, "z", { ctrl: true });
+      assert(await p.value() === original, `${JSON.stringify(before)} の Undo`);
+    }
+  });
+
+  await check("1.4.0 T-03: Shift+Enter・選択中・IME 変換中・リストでない行では標準の改行", async () => {
+    const p = await open140();
+    await setMarked(p, "- a‸");
+    await press(p, "Enter", { shift: true });
+    assert(await p.value() === "- a\n", `Shift+Enter: ${JSON.stringify(await p.value())}`);
+    assert(await lastPrevented(p) === false, "Shift+Enter の既定の動作を止めた");
+    await setMarked(p, "- «項目»");
+    await press(p, "Enter");
+    assert(await p.value() === "- \n", `選択中: ${JSON.stringify(await p.value())}`);
+    for (const init of ["{ key: 'Enter', isComposing: true, cancelable: true, bubbles: true }", "{ key: 'Enter', cancelable: true, bubbles: true }"]) {
+      await setMarked(p, "- a‸");
+      const prevented = await p.eval(`(() => { const e = new KeyboardEvent('keydown', ${init}); if (!e.isComposing) Object.defineProperty(e, 'keyCode', { get: () => 229 }); document.getElementById('source').dispatchEvent(e); return e.defaultPrevented; })()`);
+      assert(prevented === false && await p.value() === "- a", `変換中の Enter に介入した: ${init}`);
+    }
+    for (const [before, after] of [["段落‸", "段落\n"], ["‸- a", "\n- a"], ["* * *‸", "* * *\n"], ["- - -‸", "- - -\n"]]) {
+      await setMarked(p, before);
+      await press(p, "Enter");
+      assert(await p.value() === after && await lastPrevented(p) === false, `${JSON.stringify(before)} → ${JSON.stringify(await p.value())}`);
+    }
+  });
+
+  await check("1.4.0 T-04〜T-07: Tab・Shift+Tab でリストの項目を字下げ・解除し、リストでなければフォーカスが移る", async () => {
+    const p = await open140();
+    const cases = [
+      ["- a\n- b‸", false, "- a\n  - b‸"], ["1. a\n2. b‸", false, "1. a\n   2. b‸"], ["10. a\n11. b‸", false, "10. a\n    11. b‸"],
+      ["- [ ] a\n- [ ] b‸", false, "- [ ] a\n  - [ ] b‸"], ["- a‸", false, "  - a‸"], ["1. a‸", false, "   1. a‸"],
+      ["- a\n  - b‸", true, "- a\n- b‸"], ["1. a\n   - b‸", true, "1. a\n- b‸"], ["- a\n  - b\n    - c‸", true, "- a\n  - b\n  - c‸"], ["   - a‸", true, "- a‸"],
+      ["- a\n«- b\n\n- c»", false, "- a\n«  - b\n\n  - c»"],
+    ];
+    for (const [before, shift, after] of cases) {
+      const original = await setMarked(p, before);
+      await press(p, "Tab", { shift });
+      assert(await marked(p) === after, `${JSON.stringify(before)} ${shift ? "Shift+Tab" : "Tab"} → ${JSON.stringify(await marked(p))}`);
+      assert(await active(p) === "source", `${JSON.stringify(before)}: フォーカスが移った`);
+      await press(p, "z", { ctrl: true });
+      assert(await p.value() === original, `${JSON.stringify(before)} の Undo`);
+    }
+    await setMarked(p, "- a‸");
+    await press(p, "Tab", { shift: true });
+    assert(await p.value() === "- a" && await active(p) === "source" && await lastPrevented(p) === true, "字下げのない項目の Shift+Tab");
+    for (const [before, shift] of [["段落‸", false], ["«- a\n段落\n- b»", false], ["段落‸", true]]) {
+      const original = await setMarked(p, before);
+      await press(p, "Tab", { shift });
+      assert(await p.value() === original && await active(p) !== "source", `${JSON.stringify(before)}: フォーカスが移らない`);
+    }
+  });
+
+  const DH = ["---", "# yamlコメント", "---", "# 見出し1", "## 見出し2", "##### 見出し5", "###### 見出し6", "#ハッシュ", "本文の # は行頭でない", "   ## 字下げ3", "", "```md", "# コードの中", "```", "", "~~~", "## チルダの中", "~~~", "", "見出しS", "==="].join("\n");
+
+  await check("1.4.0 T-08・T-09: 見出しを1段下げる・上げる（1回の Undo で戻る）", async () => {
+    const p = await open140();
+    const caret = DH.indexOf("本文の # は行頭でない") + "本文の # は行頭でない".length;
+    const markedDH = `${DH.slice(0, caret)}‸${DH.slice(caret)}`;
+    await setMarked(p, markedDH);
+    await p.format("headingDown");
+    const down = DH.replace("# 見出し1", "## 見出し1").replace("## 見出し2", "### 見出し2").replace("##### 見出し5", "###### 見出し5").replace("   ## 字下げ3", "   ### 字下げ3");
+    assert(await p.value() === down, `下げる: ${JSON.stringify(await p.value())}`);
+    assert((await marked(p)).split("‸")[0].endsWith("本文の # は行頭でない"), "カーソルの位置が保たれない");
+    await press(p, "z", { ctrl: true });
+    assert(await p.value() === DH, "下げるの Undo");
+    await setMarked(p, markedDH);
+    await p.format("headingUp");
+    const up = DH.replace("## 見出し2", "# 見出し2").replace("##### 見出し5", "#### 見出し5").replace("###### 見出し6", "##### 見出し6").replace("   ## 字下げ3", "   # 字下げ3");
+    assert(await p.value() === up, `上げる: ${JSON.stringify(await p.value())}`);
+    await press(p, "z", { ctrl: true });
+    assert(await p.value() === DH, "上げるの Undo");
+    await setMarked(p, "# A\n# «B»\n# C");
+    await p.format("headingDown");
+    assert(await marked(p) === "# A\n## «B»\n# C", `選択した行だけ: ${await marked(p)}`);
+    for (const command of ["headingDown", "headingUp"]) {
+      await setMarked(p, "‸段落\n- 項目");
+      await p.format(command);
+      assert(await marked(p) === "‸段落\n- 項目", `${command}: 見出しがないのに変わった`);
+    }
+  });
+
+  await check("1.4.0 T-10〜T-12: 文字を選んで URL を貼り付けるとリンクにする（書式付きの貼り付けより優先）", async () => {
+    const p = await open140();
+    for (const [url, result] of [
+      ["https://example.com/a?b=1", "リンク先の[説明](https://example.com/a?b=1)"], ["http://example.com/", "リンク先の[説明](http://example.com/)"],
+      ["mailto:user@example.com", "リンク先の[説明](mailto:user@example.com)"], ["  https://example.com/x \n", "リンク先の[説明](https://example.com/x)"],
+    ]) {
+      await setMarked(p, "リンク先の«説明»");
+      await p.setClipboard(url);
+      await p.eval("document.getElementById('source').focus()");
+      await press(p, "v", { ctrl: true });
+      assert(await marked(p) === `${result}‸`, `${JSON.stringify(url)} → ${await marked(p)}`);
+      await press(p, "z", { ctrl: true });
+      assert(await p.value() === "リンク先の説明", `${url} の Undo: ${await p.value()}`);
+    }
+    for (const [before, url, after] of [
+      ["前 «説明» 後", "example.com", "前 example.com 後"], ["前 «説明» 後", "ftp://example.com", "前 ftp://example.com 後"],
+      ["前 «説明» 後", "https://exa mple.com", "前 https://exa mple.com 後"], ["前 «説明» 後", "https://a.example\nhttps://b.example", "前 https://a.example\nhttps://b.example 後"],
+      ["«https://old.example»", "https://new.example", "https://new.example"], ["«前\n説明»", "https://example.com", "https://example.com"],
+      ["前«   »後", "https://example.com", "前https://example.com後"], ["前 ‸説明 後", "https://example.com", "前 https://example.com説明 後"],
+    ]) {
+      await setMarked(p, before);
+      await p.setClipboard(url);
+      await p.eval("document.getElementById('source').focus()");
+      await press(p, "v", { ctrl: true });
+      assert(await p.value() === after, `${JSON.stringify(before)} + ${JSON.stringify(url)} → ${JSON.stringify(await p.value())}`);
+    }
+    // 書式付きテキストの貼り付けをオンにしても、リンクにする方を優先する
+    await p.click("#settingsMenuButton");
+    await p.click("#openPaste");
+    await p.eval("document.getElementById('pasteHtml').checked = true");
+    await p.click("#pasteDialog button[value='ok']");
+    await sleep(300);
+    await setMarked(p, "リンク先の«説明»");
+    await p.eval("document.getElementById('toast').hidden = true");
+    await p.setClipboard("https://example.com/", "<a href=\"https://example.com/\">Example</a>");
+    await p.eval("document.getElementById('source').focus()");
+    await press(p, "v", { ctrl: true });
+    assert(await p.value() === "リンク先の[説明](https://example.com/)", `オン: ${await p.value()}`);
+    assert(!(await p.toast()).includes(ja ? "変換して" : "onvert"), `変換の通知が出た: ${await p.toast()}`);
+    await press(p, "z", { ctrl: true });
+    assert(await p.value() === "リンク先の説明", "オンの Undo");
+  });
+
+  await check("1.4.0 T-13: Ctrl+I・Ctrl+K・Ctrl+E は斜体・リンク・インラインコードのボタンと同じ結果", async () => {
+    const p = await open140();
+    for (const [format, key] of [["italic", "i"], ["link", "k"], ["code", "e"]]) {
+      for (const start of ["abc‸", "abc «def» ghi"]) {
+        await setMarked(p, start);
+        await p.format(format);
+        const byButton = await marked(p);
+        const original = await setMarked(p, start);
+        await press(p, key, { ctrl: true });
+        const byKey = await marked(p);
+        assert(byKey === byButton, `${format} ${start}: ボタン ${byButton} / キー ${byKey}`);
+        await press(p, "z", { ctrl: true });
+        assert(await p.value() === original, `${format} ${start} の Undo`);
+      }
+    }
+    await setMarked(p, "abc «def» ghi");
+    await press(p, "k", { ctrl: true });
+    assert(await marked(p) === "abc [def](«https://») ghi", `Ctrl+K: ${await marked(p)}`);
+  });
+
+  await check("1.4.0 T-14: Ctrl+Shift+C・Ctrl+Shift+M は2つのコピーのボタンと同じ。ダイアログを開いていれば何もしない", async () => {
+    const p = await open140();
+    const doc = "# 題\n\n**太字** と [リンク](https://example.com)";
+    await setMarked(p, doc, 600);
+    await p.click("#copyRich");
+    const rich = await p.readClipboard();
+    await p.click("#copyMarkdown");
+    const md = await p.readClipboard();
+    const places = [
+      ["編集欄", "document.getElementById('source').focus()"],
+      ["プレビュー", "document.getElementById('previewScroller').focus()"],
+    ];
+    for (const [name, focus] of places) {
+      await p.setClipboard("SENTINEL-140");
+      await p.eval(focus);
+      await press(p, "c", { ctrl: true, shift: true });
+      await sleep(200);
+      const got = await p.readClipboard();
+      assert(lf(got["text/plain"]) === lf(rich["text/plain"]) && got["text/html"] === rich["text/html"], `${name}: Ctrl+Shift+C ${JSON.stringify(got).slice(0, 200)}`);
+      await p.setClipboard("SENTINEL-140");
+      await press(p, "m", { ctrl: true, shift: true });
+      await sleep(200);
+      const gotMd = await p.readClipboard();
+      assert(lf(gotMd["text/plain"]) === lf(md["text/plain"]), `${name}: Ctrl+Shift+M ${JSON.stringify(gotMd)}`);
+    }
+    // 検索語の欄の中でも
+    await press(p, "h", { ctrl: true });
+    assert(await active(p) === "searchQuery", "Ctrl+H で検索語の欄にフォーカスが移らない");
+    await p.setClipboard("SENTINEL-140");
+    await press(p, "c", { ctrl: true, shift: true });
+    await sleep(200);
+    assert(lf((await p.readClipboard())["text/plain"]) === lf(rich["text/plain"]), "検索語の欄で Ctrl+Shift+C");
+    await press(p, "Escape");
+    assert(await p.value() === doc, "コピーで値が変わった");
+    // ダイアログを開いているときは何もしない
+    await p.click("#settingsMenuButton");
+    await p.click("#openSyntax");
+    await p.setClipboard("SENTINEL-140");
+    for (const key of ["c", "m"]) {
+      await press(p, key, { ctrl: true, shift: true });
+    }
+    await press(p, "h", { ctrl: true });
+    await sleep(200);
+    const kept = await p.readClipboard();
+    assert(lf(kept["text/plain"]) === "SENTINEL-140" && !kept["text/html"], `ダイアログ中にクリップボードが変わった: ${JSON.stringify(kept)}`);
+    assert(!(await visible(p, "searchBar")) && await p.eval("document.getElementById('syntaxDialog').open"), "ダイアログ中に検索バーが開いた・ダイアログが閉じた");
+    await p.click("#syntaxDialog button[value='cancel']");
+  });
+
+  await check("1.4.0 T-15: キーボード操作の一覧とツールチップ", async () => {
+    const p = await open140();
+    await setMarked(p, "本文");
+    await p.click("#settingsMenuButton");
+    await p.click("#openKeys");
+    const dialog = await p.eval("(() => { const d = document.getElementById('keysDialog'); return { open: d.open, text: d.textContent, buttons: d.querySelectorAll('button').length }; })()");
+    await p.screenshot("140-keys-dialog");
+    assert(dialog.open && dialog.buttons === 1, `ダイアログ: ${JSON.stringify(dialog).slice(0, 200)}`);
+    for (const key of ["Ctrl+B", "Ctrl+I", "Ctrl+K", "Ctrl+E", "Ctrl+Shift+C", "Ctrl+Shift+M", "Ctrl+H", "Ctrl+V", "Ctrl+Z", "Ctrl+Y", "Enter", "Shift+Enter", "Esc", "Tab", "Shift+Tab", "URL"]) {
+      assert(dialog.text.includes(key), `一覧に ${key} がない`);
+    }
+    await p.click("#keysDialog button[value='close']");
+    assert(!(await p.eval("document.getElementById('keysDialog').open")) && await p.value() === "本文", "閉じない・値が変わった");
+    const titles = await p.eval("({ italic: document.querySelector(\"[data-format='italic']\").title, link: document.querySelector(\"[data-format='link']\").title, code: document.querySelector(\"[data-format='code']\").title, bold: document.querySelector(\"[data-format='bold']\").title, rich: document.getElementById('copyRich').title, md: document.getElementById('copyMarkdown').title })");
+    assert(titles.italic.endsWith("(Ctrl+I)") && titles.link.endsWith("(Ctrl+K)") && titles.code.endsWith("(Ctrl+E)") && titles.bold.endsWith("(Ctrl+B)") && titles.rich.endsWith("(Ctrl+Shift+C)") && titles.md.endsWith("(Ctrl+Shift+M)"), `ツールチップ: ${JSON.stringify(titles)}`);
+    if (ja) {
+      assert(titles.italic === "斜体 (Ctrl+I)" && titles.link === "リンク (Ctrl+K)" && titles.code === "インラインコード (Ctrl+E)" && titles.bold === "太字 (Ctrl+B)", `日本語のツールチップ: ${JSON.stringify(titles)}`);
+    }
+  });
+
+  const DS = "apple Apple APPLE\nbanana apple pie\napple";
+  const sel = (p) => p.eval("[document.getElementById('source').selectionStart, document.getElementById('source').selectionEnd]");
+  async function typeQuery(p, id, value) {
+    await p.eval(`(() => { const el = document.getElementById(${JSON.stringify(id)}); el.focus(); el.select(); })()`);
+    if (value === "") {
+      await press(p, "Backspace");
+    } else {
+      await p.send("Input.insertText", { text: value });
+    }
+    await sleep(60);
+  }
+
+  await check("1.4.0 T-16: 検索の次へ・前へ・件数・大文字と小文字の区別", async () => {
+    const p = await open140();
+    await setMarked(p, `${DS.slice(0, 18)}‸${DS.slice(18)}`);
+    await press(p, "h", { ctrl: true });
+    assert(await visible(p, "searchBar") && await active(p) === "searchQuery", "Ctrl+H で検索バーが出ない");
+    await p.send("Input.insertText", { text: "apple" });
+    await sleep(60);
+    assert(await text140(p, "searchCount") === L140.total(5), `件数: ${await text140(p, "searchCount")}`);
+    const steps = [[false, [25, 30], "4 / 5"], [false, [35, 40], "5 / 5"], [false, [0, 5], "1 / 5"], [true, [35, 40], "5 / 5"], [true, [25, 30], "4 / 5"]];
+    for (const [shift, range, count] of steps) {
+      await press(p, "Enter", { shift });
+      const got = await sel(p);
+      assert(got[0] === range[0] && got[1] === range[1] && await text140(p, "searchCount") === count, `${shift ? "Shift+Enter" : "Enter"}: ${got} ${await text140(p, "searchCount")}`);
+      assert(await active(p) === "searchQuery", "フォーカスが検索語の欄から移った");
+    }
+    await p.screenshot("140-search");
+    await p.click("#searchCase");
+    assert(await text140(p, "searchCount") === "2 / 3", `区別: ${await text140(p, "searchCount")}`);
+    await p.click("#searchNext");
+    assert(JSON.stringify(await sel(p)) === "[35,40]" && await text140(p, "searchCount") === "3 / 3", "区別して次へ");
+    await p.click("#searchNext");
+    assert(JSON.stringify(await sel(p)) === "[0,5]" && await text140(p, "searchCount") === "1 / 3", "区別して次へ（先頭へ戻る）");
+    await p.click("#searchCase");
+    assert(await text140(p, "searchCount") === "1 / 5", `区別を外す: ${await text140(p, "searchCount")}`);
+    await typeQuery(p, "searchQuery", "pear");
+    assert(await text140(p, "searchCount") === L140.none && await p.value() === DS, "見つからない");
+  });
+
+  await check("1.4.0 T-17・T-18: 置換とすべて置換（1回の Undo で戻る）", async () => {
+    const p = await open140();
+    await setMarked(p, "cat dog cat dog cat");
+    await press(p, "h", { ctrl: true });
+    await typeQuery(p, "searchQuery", "cat");
+    await typeQuery(p, "searchReplace", "bird");
+    await p.eval("document.getElementById('source').setSelectionRange(0, 3)");
+    await p.click("#replaceOne");
+    assert(await p.value() === "bird dog cat dog cat" && JSON.stringify(await sel(p)) === "[9,12]" && await text140(p, "searchCount") === "1 / 2", `1回目: ${await p.value()} ${await sel(p)} ${await text140(p, "searchCount")}`);
+    await p.click("#replaceOne");
+    assert(await p.value() === "bird dog bird dog cat" && JSON.stringify(await sel(p)) === "[18,21]" && await text140(p, "searchCount") === "1 / 1", `2回目: ${await p.value()} ${await sel(p)}`);
+    await p.eval("document.getElementById('source').focus()");
+    await press(p, "z", { ctrl: true });
+    assert(await p.value() === "bird dog cat dog cat", `Undo: ${await p.value()}`);
+    await p.eval("document.getElementById('source').setSelectionRange(0, 0)");
+    await p.click("#replaceOne");
+    assert(await p.value() === "bird dog cat dog cat" && JSON.stringify(await sel(p)) === "[9,12]", `一致を選んでいない置換: ${await p.value()} ${await sel(p)}`);
+
+    await setMarked(p, "a-b a-b A-B");
+    await typeQuery(p, "searchQuery", "a-b");
+    await typeQuery(p, "searchReplace", "x");
+    await p.click("#replaceAll");
+    assert(await p.value() === "x x x" && await p.toast() === L140.replaced(3), `すべて置換: ${await p.value()} ${await p.toast()}`);
+    await p.eval("document.getElementById('source').focus()");
+    await press(p, "z", { ctrl: true });
+    assert(await p.value() === "a-b a-b A-B", `すべて置換の Undo: ${await p.value()}`);
+    await press(p, "y", { ctrl: true });
+    assert(await p.value() === "x x x", `Redo: ${await p.value()}`);
+    await typeQuery(p, "searchQuery", "zzz");
+    await p.click("#replaceAll");
+    assert(await p.value() === "x x x" && await p.toast() === L140.none, `見つからない: ${await p.toast()}`);
+  });
+
+  await check("1.4.0 T-19: 検索バーはメニューからも開け、Esc・×・クリア・編集欄を閉じた状態で正しく動く", async () => {
+    const p = await open140();
+    await setMarked(p, DS);
+    await p.click("#settingsMenuButton");
+    await p.click("#openSearch");
+    assert(await visible(p, "searchBar") && await active(p) === "searchQuery", "メニューから開かない");
+    await typeQuery(p, "searchQuery", "apple");
+    await p.eval("document.getElementById('source').setSelectionRange(0, 0)");
+    await p.click("#searchNext");
+    const chosen = await sel(p);
+    await p.eval("document.getElementById('searchQuery').focus()");
+    await press(p, "Escape");
+    assert(!(await visible(p, "searchBar")) && await active(p) === "source" && JSON.stringify(await sel(p)) === JSON.stringify(chosen), "Esc");
+    await press(p, "h", { ctrl: true });
+    await p.click("#searchClose");
+    assert(!(await visible(p, "searchBar")) && await active(p) === "source", "×");
+    await press(p, "h", { ctrl: true });
+    await p.click("#clear");
+    await p.click("#clearDialog button[value='clear']");
+    assert(!(await visible(p, "searchBar")), "クリアで閉じない");
+    await setMarked(p, DS);
+    await p.click("#toggleSource");
+    await p.eval("document.body.focus()");
+    await press(p, "h", { ctrl: true });
+    const state140 = await p.eval("({ open: document.getElementById('workspace').classList.contains('source-open'), label: document.getElementById('toggleSourceLabel').textContent })");
+    assert(state140.open && await visible(p, "searchBar") && await active(p) === "searchQuery", `編集欄を閉じた状態の Ctrl+H: ${JSON.stringify(state140)}`);
+  });
+
+  await check("1.4.0 T-20・T-21: 文字数・行数・語数の表示", async () => {
+    const p = await open140();
+    const stats = () => text140(p, "stats");
+    for (const [value, expected] of [["", L140.stats(0, 0, 0)], ["Hello, world 123", L140.stats(16, 1, 3)], ["a\nb\n", L140.stats(2, 3, 2)], ["a".repeat(12345), L140.stats("12,345", 1, 1)]]) {
+      await setMarked(p, value, 300);
+      assert(await stats() === expected, `${JSON.stringify(value.slice(0, 20))}: ${await stats()}`);
+    }
+    await setMarked(p, "one «two\nthree» four\nfive", 300);
+    assert(await stats() === `${L140.selection(8, 2)} · ${L140.stats(21, 3, 5)}`, `選択中: ${await stats()}`);
+    await p.eval("(() => { const s = document.getElementById('source'); s.setSelectionRange(s.value.length, s.value.length); })()");
+    await sleep(100);
+    assert(await stats() === L140.stats(21, 3, 5), `選択の解除: ${await stats()}`);
+    await p.send("Input.insertText", { text: "x" });
+    await sleep(300);
+    assert(await stats() === L140.stats(22, 3, 5), `入力後: ${await stats()}`);
+    await p.click("#toggleSource");
+    assert(!(await visible(p, "stats")), "編集欄を閉じても文字数が見える");
+    await p.click("#toggleSource");
+    await setMarked(p, "a".repeat(200000), 500);
+    assert(await stats() === L140.stats("200,000", 1, 1), `20万: ${await stats()}`);
+    await p.send("Input.insertText", { text: "a" });
+    await sleep(500);
+    const over = await stats();
+    assert(over.startsWith(ja ? "200,001 文字 · 1 行 · " : "200,001 characters · 1 lines · ") && over.includes("—") && !/\d\s*(語|words)/u.test(over), `20万超: ${over}`);
+  });
+
+  const F140 = "埋め草の段落です。".repeat(20);
+  const fill = (n) => Array.from({ length: n }, () => F140).join("\n\n");
+  const DT = ["# 章1", "", fill(10), "", "## 節1.1", "", fill(10), "", "### 項1.1.1", "", "<h2>HTMLの見出し</h2>", "", "```md", "# コードの中", "```", "", "章2", "===", "", fill(10), "", "## 節2.1", "", fill(10)].join("\n");
+  const tocItems = (p) => p.eval("[...document.querySelectorAll('#tocMenu [role=menuitem]')].map((b) => ({ text: b.textContent, left: b.getBoundingClientRect().left + parseFloat(getComputedStyle(b).paddingLeft), em: parseFloat(getComputedStyle(b).fontSize) }))");
+  const headingTop = (p, selector, text) => p.eval(`(() => { const h = [...document.querySelectorAll('#preview ${selector}')].find((el) => el.textContent.trim() === ${JSON.stringify(text)}); const s = document.getElementById('previewScroller'); return { y: h.getBoundingClientRect().top - s.getBoundingClientRect().top - s.clientTop, max: s.scrollTop >= s.scrollHeight - s.clientHeight - 1, shown: h.classList.contains('jump-target') }; })()`);
+
+  await check("1.4.0 T-22・T-23: 目次の項目・移動・表示の条件", async () => {
+    const p = await open140();
+    await setMarked(p, DT, 1000);
+    assert(await visible(p, "tocWrap"), "［目次▾］が出ない");
+    await p.click("#tocButton");
+    await p.screenshot("140-toc");
+    const items = await tocItems(p);
+    assert(JSON.stringify(items.map((i) => i.text)) === JSON.stringify(["章1", "節1.1", "項1.1.1", "章2", "節2.1"]), `項目: ${JSON.stringify(items.map((i) => i.text))}`);
+    const base = items[0].left;
+    const indents = items.map((i) => Math.round((i.left - base) / i.em));
+    assert(JSON.stringify(indents) === "[0,1,2,0,1]", `字下げ: ${JSON.stringify(items)}`);
+    await p.eval("document.getElementById('previewScroller').scrollTop = 0; document.getElementById('source').setSelectionRange(0, 0)");
+    await p.eval("document.querySelectorAll('#tocMenu [role=menuitem]')[4].click()");
+    await sleep(300);
+    const top = await headingTop(p, "h2", "節2.1");
+    assert((Math.abs(top.y - 16) <= 2 || top.max) && top.shown, `移った位置: ${JSON.stringify(top)}`);
+    const caret = await sel(p);
+    assert(caret[0] === DT.indexOf("## 節2.1") && caret[1] === caret[0], `カーソル: ${caret}`);
+    assert(await active(p) === "tocButton" && await p.value() === DT, "フォーカス・値");
+    await p.installJumpHelpers();
+    const lineY = await p.eval(`(() => { const e = window.__j.E(); return { y: window.__j.wrappedTop(${DT.indexOf("## 節2.1")}) - e.scrollTop, h: e.clientHeight }; })()`);
+    assert(lineY.y >= 0 && lineY.y < lineY.h, `編集欄でその行が見えない: ${JSON.stringify(lineY)}`);
+    await sleep(1800);
+    assert(!(await headingTop(p, "h2", "節2.1")).shown, "2秒後も示している");
+    for (const value of ["段落だけ", "<h1>HTMLだけ</h1>", "```\n# コードだけ\n```"]) {
+      await setMarked(p, value, 1000);
+      assert(!(await visible(p, "tocWrap")), `${value}: ［目次▾］が出た`);
+    }
+    await setMarked(p, DT, 1000);
+    await p.click("#toggleSource");
+    await p.click("#tocButton");
+    await p.eval("document.querySelectorAll('#tocMenu [role=menuitem]')[3].click()");
+    await sleep(300);
+    const closed = await headingTop(p, "h1", "章2");
+    assert((Math.abs(closed.y - 16) <= 2 || closed.max) && closed.shown, `閉じた状態: ${JSON.stringify(closed)}`);
+    assert(!(await p.eval("document.getElementById('workspace').classList.contains('source-open')")), "編集欄が開いた");
+    assert((await sel(p))[0] === DT.indexOf("章2\n===") && await active(p) === "tocButton", "閉じた状態のカーソル・フォーカス");
+  });
+
+  const DC = [fill(6), "", "- [ ] 未完了", "- [x] 完了", "- [X] 大文字", "  - [ ] 子", "", "1. [ ] 番号", "", "<input type=\"checkbox\">", "", "> - [ ] 引用の中", "", "- [ ] 同じ", "- [ ] 同じ", "", fill(20)].join("\n");
+  const boxPoint = (p, text) => p.eval(`(() => { const li = [...document.querySelectorAll('#preview li')].find((el) => el.textContent.trim().startsWith(${JSON.stringify(text)})); const box = li.querySelector('input'); const r = box.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, checked: box.checked }; })()`);
+
+  await check("1.4.0 T-24・T-25: プレビューのチェックボックスで原文の [ ] と [x] を切り替える", async () => {
+    const p = await open140();
+    await setMarked(p, DC, 1000);
+    await p.eval("(() => { const li = [...document.querySelectorAll('#preview li')].find((el) => el.textContent.trim().startsWith('未完了')); li.scrollIntoView({ block: 'center' }); })()");
+    await sleep(100);
+    const scrollTop = await p.eval("document.getElementById('previewScroller').scrollTop");
+    assert(scrollTop > 0, "スクロールできない");
+    const clickBox = async (text) => {
+      const point = await boxPoint(p, text);
+      await p.mouse(point.x, point.y);
+      await sleep(500);
+    };
+    await clickBox("未完了");
+    assert(await p.value() === DC.replace("- [ ] 未完了", "- [x] 未完了"), "未完了");
+    assert((await boxPoint(p, "未完了")).checked, "プレビューの未完了が checked でない");
+    assert(Math.abs(await p.eval("document.getElementById('previewScroller').scrollTop") - scrollTop) <= 1, "スクロール位置が変わった");
+    await p.eval("document.getElementById('source').focus()");
+    await press(p, "z", { ctrl: true });
+    await sleep(1000);
+    assert(await p.value() === DC && !(await boxPoint(p, "未完了")).checked, "Undo");
+    for (const [text, before, after] of [["完了", "- [x] 完了", "- [ ] 完了"], ["大文字", "- [X] 大文字", "- [ ] 大文字"], ["番号", "1. [ ] 番号", "1. [x] 番号"]]) {
+      const current = await p.value();
+      await clickBox(text);
+      assert(await p.value() === current.replace(before, after), `${text}: ${JSON.stringify((await p.value()).slice(0, 0))}`);
+    }
+    await setMarked(p, DC, 1000);
+    await p.eval("(() => { const li = [...document.querySelectorAll('#preview li')].find((el) => el.textContent.trim().startsWith('未完了')); li.querySelector('input').focus(); })()");
+    await press(p, " ");
+    await sleep(300);
+    assert(await p.value() === DC.replace("- [ ] 未完了", "- [x] 未完了"), "Space で切り替わらない");
+    const focused = await p.eval("(() => { const el = document.activeElement; return el?.matches('#preview input[type=checkbox]') && el.closest('li').textContent.trim().startsWith('未完了'); })()");
+    assert(focused, "Space の後のフォーカス");
+    await setMarked(p, DC, 1000);
+    for (const selector of ["#preview p > input, #preview > input, #preview input:not(li input)", "#preview blockquote input"]) {
+      const point = await p.eval(`(() => { const box = document.querySelector(${JSON.stringify(selector)}); box.scrollIntoView({ block: 'center' }); const r = box.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, checked: box.checked }; })()`);
+      await p.mouse(point.x, point.y);
+      await sleep(400);
+      const after = await p.eval(`document.querySelector(${JSON.stringify(selector)}).checked`);
+      assert(await p.value() === DC && after === point.checked, `${selector}: 変わった`);
+    }
+  });
+
+  // ---- 1.4.0 総合（試験表 20261117-features-140 の T-28〜T-55。レビュー R1〜R7 の回帰を含む） ----
+
+  const stats140 = (p) => text140(p, "stats");
+  const hl = (p) => p.eval("document.getElementById('searchHighlight').children.length");
+  const msg = (p, key) => p.eval(`chrome.i18n.getMessage(${JSON.stringify(key)})`);
+  const expectedStats = (p) => p.eval(`(() => { const v = document.getElementById('source').value; const chars = [...v.replace(/\\n/g, '')].length; const lines = v === '' ? 0 : v.split('\\n').length; const words = [...new Intl.Segmenter(undefined, { granularity: 'word' }).segment(v)].filter((s) => s.isWordLike).length; return { chars: chars.toLocaleString(), lines: lines.toLocaleString(), words: words.toLocaleString() }; })()`);
+  const sourceOpen = (p) => p.eval("document.getElementById('workspace').classList.contains('source-open')");
+  const menuOpen = (p, id) => p.eval(`!document.getElementById(${JSON.stringify(id)}).hidden`);
+  async function setPasteHtml(p, on) {
+    await p.click("#settingsMenuButton");
+    await p.click("#openPaste");
+    await p.eval(`document.getElementById('pasteHtml').checked = ${on}`);
+    await p.click("#pasteDialog button[value='ok']");
+    await sleep(300);
+  }
+  async function enableAllFeatures(p) {
+    await p.click("#settingsMenuButton");
+    await p.click("#openSyntax");
+    await p.eval("document.querySelectorAll('#syntaxDialog input[name=feature]').forEach((c) => { c.checked = true; })");
+    await p.click("#syntaxDialog button[value='ok']");
+    await sleep(400);
+  }
+  /** プレビューの、指定の文字で始まる li の中の n 番目の input（既定は先頭）を表示して、その中心の座標を返す。 */
+  const boxIn = (p, text, n = 0) => p.eval(`(() => { const li = [...document.querySelectorAll('#preview li')].find((el) => el.textContent.trim().startsWith(${JSON.stringify(text)})); const box = li.querySelectorAll('input')[${n}]; box.scrollIntoView({ block: 'center' }); const r = box.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, checked: box.checked }; })()`);
+  const boxChecked = (p, text, n = 0) => p.eval(`[...document.querySelectorAll('#preview li')].find((el) => el.textContent.trim().startsWith(${JSON.stringify(text)})).querySelectorAll('input')[${n}].checked`);
+  async function clickBoxIn(p, text, n = 0, wait = 500) {
+    const point = await boxIn(p, text, n);
+    await p.mouse(point.x, point.y);
+    await sleep(wait);
+    return point;
+  }
+  const tocTexts = async (p) => {
+    await p.click("#tocButton");
+    const texts = await p.eval("[...document.querySelectorAll('#tocMenu [role=menuitem]')].map((b) => b.textContent)");
+    await press(p, "Escape");
+    await p.eval("document.getElementById('tocMenu').hidden = true");
+    return texts;
+  };
+  const DL300 = Array.from({ length: 300 }, (_, i) => (i === 249 ? "行250 目標" : `行${i + 1}`)).join("\n");
+  const DM = (() => {
+    const parts = ["# 先頭", "", "- [ ] 手動の項目", ""];
+    let length = parts.join("\n").length;
+    while (length <= 210000) {
+      parts.push(F140, "");
+      length += F140.length + 2;
+    }
+    return parts.join("\n");
+  })();
+  const PNG1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+  await check("1.4.0 総合 T-28: Enter の境界（空白・タブ・入れ子の引用・番号を振り直さない・記号の途中・修飾キー・Redo）", async () => {
+    const p = await open140();
+    for (const [before, after] of [
+      ["1.  a‸", "1.  a\n2.  ‸"], ["-\ta‸", "-\ta\n-\t‸"], ["\t- a‸", "\t- a\n\t- ‸"], ["> > a‸", "> > a\n> > ‸"], ["1. a‸\n2. b", "1. a\n2. ‸\n2. b"],
+    ]) {
+      await setMarked(p, before);
+      await press(p, "Enter");
+      assert(await marked(p) === after, `${JSON.stringify(before)} → ${JSON.stringify(await marked(p))}`);
+    }
+    for (const [before, after] of [["-‸ a", "-\n a"], ["- [‸x] a", "- [\nx] a"]]) {
+      await setMarked(p, before);
+      await press(p, "Enter");
+      assert(await p.value() === after && await lastPrevented(p) === false, `${JSON.stringify(before)} → ${JSON.stringify(await p.value())}`);
+    }
+    for (const mod of [{ ctrl: true }, { alt: true }]) {
+      await setMarked(p, "- a‸");
+      await press(p, "Enter", mod);
+      assert(!(await p.value()).includes("\n- ") && await lastPrevented(p) === false, `${JSON.stringify(mod)}+Enter: ${JSON.stringify(await p.value())}`);
+    }
+    await setMarked(p, "- 項目A‸");
+    await press(p, "Enter");
+    await press(p, "z", { ctrl: true });
+    assert(await p.value() === "- 項目A", "Undo");
+    await press(p, "y", { ctrl: true });
+    assert(await p.value() === "- 項目A\n- ", `Redo: ${JSON.stringify(await p.value())}`);
+  });
+
+  await check("1.4.0 総合 T-29: IME 変換中の Enter・Tab には介入しない", async () => {
+    const p = await open140();
+    await setMarked(p, "- a‸");
+    await p.eval("document.getElementById('source').dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))");
+    await press(p, "Enter");
+    assert(!(await p.value()).includes("\n- "), `変換中の Enter: ${JSON.stringify(await p.value())}`);
+    await setMarked(p, "- a‸");
+    await p.eval("document.getElementById('source').dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }))");
+    await press(p, "Enter");
+    assert(await marked(p) === "- a\n- ‸", `確定後の Enter: ${await marked(p)}`);
+    await setMarked(p, "- a\n- b‸");
+    await p.eval("document.getElementById('source').dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))");
+    const prevented = await p.eval("(() => { const e = new KeyboardEvent('keydown', { key: 'Tab', isComposing: true, cancelable: true, bubbles: true }); document.getElementById('source').dispatchEvent(e); return e.defaultPrevented; })()");
+    assert(prevented === false && await p.value() === "- a\n- b", "変換中の Tab");
+    await p.eval("document.getElementById('source').dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }))");
+  });
+
+  await check("1.4.0 総合 T-30: Tab・Shift+Tab の境界と水平線（レビュー R5）", async () => {
+    const p = await open140();
+    for (const [before, shift, after] of [
+      ["- a\n  続き\n\n- b‸", false, "- a\n  続き\n\n  - b"], ["10. a\n- b‸", false, "10. a\n    - b"], ["- a\n\t- b‸", true, "- a\n- b"],
+      ["- p\n«    - a\n  - b»", true, "- p\n- a\n- b"],
+    ]) {
+      const original = await setMarked(p, before);
+      await press(p, "Tab", { shift });
+      assert(await p.value() === after, `${JSON.stringify(before)} → ${JSON.stringify(await p.value())}`);
+      await press(p, "z", { ctrl: true });
+      assert(await p.value() === original, `${JSON.stringify(before)} の Undo`);
+    }
+    await setMarked(p, "- x\n- ab‸c");
+    await press(p, "Tab");
+    assert(await marked(p) === "- x\n  - ab‸c", `(e) Tab: ${await marked(p)}`);
+    await press(p, "Tab", { shift: true });
+    assert(await marked(p) === "- x\n- ab‸c", `(e) Shift+Tab: ${await marked(p)}`);
+    await press(p, "z", { ctrl: true });
+    assert(await p.value() === "- x\n  - abc", `(e) の Undo: ${JSON.stringify(await p.value())}`);
+    await setMarked(p, "«- a\n  - b»");
+    await press(p, "Tab", { shift: true });
+    assert(await p.value() === "- a\n  - b" && await active(p) === "source", "(f)");
+    await setMarked(p, "前\n段落‸");
+    await press(p, "Tab", { shift: true });
+    assert(await p.value() === "前\n段落" && await active(p) !== "source", "(g)");
+    for (const before of ["* * *‸", "- - -‸", "  * * *‸", "-\t-\t-‸", "«- a\n* * *\n- b»"]) {
+      for (const shift of before.includes("«") ? [false] : [false, true]) {
+        const original = await setMarked(p, before);
+        await press(p, "Tab", { shift });
+        assert(await p.value() === original && await lastPrevented(p) === false, `(h) ${JSON.stringify(before)} ${shift ? "Shift+Tab" : "Tab"}: ${JSON.stringify(await p.value())}`);
+      }
+    }
+  });
+
+  await check("1.4.0 総合 T-31: 見出しのシフトの範囲・メニューのキーボード操作・行頭のインラインコード（レビュー R3）", async () => {
+    const p = await open140();
+    await setMarked(p, "«# A\n# B\n»# C");
+    await p.format("headingDown");
+    assert(await p.value() === "## A\n## B\n# C", `(a): ${JSON.stringify(await p.value())}`);
+    await setMarked(p, "#\n本文");
+    await p.format("headingDown");
+    assert(await p.value() === "##\n本文", "(b)");
+    await setMarked(p, DH);
+    await press(p, "a", { ctrl: true });
+    await p.format("headingDown");
+    const down = DH.replace("# 見出し1", "## 見出し1").replace("## 見出し2", "### 見出し2").replace("##### 見出し5", "###### 見出し5").replace("   ## 字下げ3", "   ### 字下げ3");
+    assert(await p.value() === down, "(c)");
+    const fenced = "```markdown\n# 外\n## 中\n```";
+    await setMarked(p, fenced);
+    await p.format("headingDown");
+    assert(await p.value() === fenced, "(d)");
+    await setMarked(p, "# A");
+    await p.eval("document.querySelector(\"[aria-controls='headingMenu']\").focus()");
+    await press(p, "Enter");
+    for (let i = 0; i < 12 && await p.eval("document.activeElement?.dataset?.format") !== "headingDown"; i++) {
+      await press(p, "ArrowDown");
+    }
+    await press(p, "Enter");
+    assert(await p.value() === "## A" && !(await menuOpen(p, "headingMenu")), `(e): ${await p.value()}`);
+    await sleep(400);
+    const want = await expectedStats(p);
+    assert((await stats140(p)).startsWith(ja ? `${want.chars} 文字` : `${want.chars} characters`), `(f): ${await stats140(p)}`);
+    for (const first of ["```inline```", "```a`b"]) {
+      const text = `${first}\n# Actual\n`;
+      for (const [marks, command, start, expected] of [
+        ["", "headingDown", text, `${first}\n## Actual\n`],
+        ["line", "headingDown", text, `${first}\n## Actual\n`],
+        ["", "headingUp", `${first}\n## Actual\n`, `${first}\n# Actual\n`],
+      ]) {
+        const at = start.indexOf("#");
+        const lineEnd = start.indexOf("\n", at);
+        const m = marks === "line" ? `${start.slice(0, at)}«${start.slice(at, lineEnd)}»${start.slice(lineEnd)}` : `${start}‸`;
+        await setMarked(p, m);
+        await p.format(command);
+        assert(await p.value() === expected, `(g) ${JSON.stringify(m)} ${command}: ${JSON.stringify(await p.value())}`);
+        await press(p, "z", { ctrl: true });
+        assert(await p.value() === start, `(g) ${JSON.stringify(m)} の Undo`);
+      }
+    }
+  });
+
+  await check("1.4.0 総合 T-32: URL の貼り付けの境界と、編集欄の外からの貼り付け（レビュー R1）", async () => {
+    const p = await open140();
+    const pasteIn = async (before, plain, html = null) => {
+      await setMarked(p, before);
+      await p.setClipboard(plain, html);
+      await p.eval("document.getElementById('source').focus()");
+      await press(p, "v", { ctrl: true });
+    };
+    await pasteIn("前« 説明 »後", "https://example.com");
+    assert(await p.value() === "前 [説明](https://example.com) 後", `(a): ${await p.value()}`);
+    await pasteIn("リンク先の«説明»", "https://example.com/", "<a href=\"https://example.com/\">Example</a>");
+    assert(await p.value() === "リンク先の[説明](https://example.com/)", `(b): ${await p.value()}`);
+    // (c) 選択の後、プレビューの何もない所をクリックしてから Ctrl+V
+    await setMarked(p, "前 «説明» 後", 600);
+    const blank = await p.eval("(() => { const r = document.getElementById('previewScroller').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.bottom - 10 }; })()");
+    await p.mouse(blank.x, blank.y);
+    assert(await active(p) !== "source", "(c) フォーカスがプレビューへ移らない");
+    await p.setClipboard("https://example.com");
+    await press(p, "v", { ctrl: true });
+    assert(!(await p.value()).includes("[説明](") && (await p.value()).includes("https://example.com"), `(c): ${await p.value()}`);
+    // (d) 画像だけのクリップボード
+    await setMarked(p, "前 «説明» 後");
+    await p.eval(`(async () => { const bin = Uint8Array.from(atob(${JSON.stringify(PNG1)}), (c) => c.charCodeAt(0)); await navigator.clipboard.write([new ClipboardItem({ "image/png": new Blob([bin], { type: "image/png" }) })]); })()`);
+    await press(p, "v", { ctrl: true });
+    // Chrome は文字のないクリップボードの貼り付けでも選択を消す。拡張の処理のない textarea と同じ結果で、リンクにしないこと（2026-11-17 工程Gで期待結果を訂正）
+    await p.eval("(() => { const t = document.createElement('textarea'); t.id = 'plainTa'; document.body.prepend(t); t.value = '前 説明 後'; t.focus(); t.setSelectionRange(2, 4); })()");
+    await press(p, "v", { ctrl: true });
+    const plainResult = await p.eval("(() => { const t = document.getElementById('plainTa'); const v = t.value; t.remove(); return v; })()");
+    assert(await p.value() === plainResult && !(await p.value()).includes("]("), `(d): ${await p.value()} / 標準 ${plainResult}`);
+    // (e) Undo・Redo
+    await pasteIn("リンク先の«説明»", "https://example.com/a?b=1");
+    await press(p, "z", { ctrl: true });
+    await press(p, "y", { ctrl: true });
+    assert(await p.value() === "リンク先の[説明](https://example.com/a?b=1)", `(e): ${await p.value()}`);
+    await pasteIn("前 «説明» 後", "https://example.com/日本語");
+    assert(await p.value() === "前 [説明](https://example.com/日本語) 後", `(f): ${await p.value()}`);
+    // (g) 外からの貼り付け: Shift+Insert・編集欄を閉じた状態・選択なし・書式付きテキストの貼り付けのオン・オフ
+    for (const on of [false, true]) {
+      await setPasteHtml(p, on);
+      for (const [name, before, key, close] of [
+        ["Ctrl+V", "前 «説明» 後", ["v", { ctrl: true }], false],
+        ["Shift+Insert", "前 «説明» 後", ["Insert", { shift: true }], false],
+        ["編集欄を閉じた状態", "前 «説明» 後", ["v", { ctrl: true }], true],
+        ["選択なし", "前 説明‸ 後", ["v", { ctrl: true }], false],
+      ]) {
+        const original = await setMarked(p, before);
+        if (close) {
+          await p.click("#toggleSource");
+        }
+        await p.eval("document.getElementById('previewScroller').focus()");
+        await p.setClipboard("https://example.com");
+        await press(p, ...key);
+        const value = await p.value();
+        assert(!value.includes("[説明](") && value.includes("https://example.com"), `(g) ${on ? "オン" : "オフ"} ${name}: ${value}`);
+        await p.eval("document.getElementById('source').focus()");
+        await press(p, "z", { ctrl: true });
+        assert(await p.value() === original, `(g) ${on ? "オン" : "オフ"} ${name} の Undo: ${await p.value()}`);
+        // 直後の編集欄での貼り付けは、これまでどおりリンクにする
+        await pasteIn("前 «説明» 後", "https://example.com");
+        assert(await p.value() === "前 [説明](https://example.com) 後", `(g) ${on ? "オン" : "オフ"} ${name} の後の編集欄での貼り付け: ${await p.value()}`);
+        await press(p, "z", { ctrl: true });
+        assert(await p.value() === "前 説明 後", `(g) ${name} の後の貼り付けの Undo`);
+      }
+    }
+  });
+
+  await check("1.4.0 総合 T-33: Meta のショートカット・対象外の修飾キー・フォーカスの場所", async () => {
+    const p = await open140();
+    const start = "abc «def» ghi";
+    for (const [format, key] of [["italic", "i"], ["link", "k"], ["code", "e"]]) {
+      await setMarked(p, start);
+      await p.format(format);
+      const byButton = await marked(p);
+      await setMarked(p, start);
+      await press(p, key, { meta: true });
+      assert(await marked(p) === byButton, `(a) Meta+${key}: ${await marked(p)} / ${byButton}`);
+    }
+    await setMarked(p, start, 600);
+    await p.click("#copyRich");
+    const rich = await p.readClipboard();
+    await p.click("#copyMarkdown");
+    const md = await p.readClipboard();
+    await p.eval("document.getElementById('source').focus()");
+    await p.setClipboard("SENTINEL-T33");
+    await press(p, "c", { meta: true, shift: true });
+    await sleep(200);
+    const gotRich = await p.readClipboard();
+    assert(gotRich["text/html"] === rich["text/html"] && lf(gotRich["text/plain"]) === lf(rich["text/plain"]), "(b) Meta+Shift+C");
+    await p.setClipboard("SENTINEL-T33");
+    await press(p, "m", { meta: true, shift: true });
+    await sleep(200);
+    assert(lf((await p.readClipboard())["text/plain"]) === lf(md["text/plain"]), "(b) Meta+Shift+M");
+    await setMarked(p, start);
+    await press(p, "h", { meta: true });
+    assert(await visible(p, "searchBar") && await p.eval("document.getElementById('searchQuery').value") === "def", "(c) Meta+H");
+    await press(p, "Escape");
+    for (const [key, mod] of [["i", { ctrl: true, shift: true }], ["i", { ctrl: true, alt: true }], ["k", { ctrl: true, alt: true }], ["e", { ctrl: true, shift: true }]]) {
+      const original = await setMarked(p, start);
+      await press(p, key, mod);
+      assert(await p.value() === original, `(d) ${JSON.stringify(mod)}+${key}: ${await p.value()}`);
+    }
+    await setMarked(p, start);
+    await p.setClipboard("SENTINEL-T33");
+    await press(p, "c", { ctrl: true, alt: true, shift: true });
+    await sleep(200);
+    assert(lf((await p.readClipboard())["text/plain"]) === "SENTINEL-T33", "(e) Ctrl+Alt+Shift+C");
+    const original = await setMarked(p, start);
+    await p.eval("document.getElementById('previewScroller').focus()");
+    await press(p, "i", { ctrl: true });
+    assert(await p.value() === original, "(f) プレビューで Ctrl+I");
+    await setMarked(p, start);
+    await press(p, "b", { ctrl: true });
+    assert(await p.value() === "abc **def** ghi", `(g) Ctrl+B: ${await p.value()}`);
+    for (const key of ["f", "y"]) {
+      await setMarked(p, start);
+      await press(p, key, { ctrl: true });
+      assert(await lastPrevented(p) === false, `(h) Ctrl+${key} の既定の動作を止めた`);
+    }
+  });
+
+  await check("1.4.0 総合 T-34: コピーのショートカットの境界（空・Frontmatter だけ・失敗・IME・ダイアログ）", async () => {
+    const p = await open140();
+    for (const [key, button] of [["m", "#copyMarkdown"], ["c", "#copyRich"]]) {
+      await setMarked(p, "");
+      await p.setClipboard("SENTINEL-T34");
+      await p.eval("document.getElementById('toast').hidden = true");
+      await press(p, key, { ctrl: true, shift: true });
+      await sleep(200);
+      const byKey = await p.toast();
+      await p.eval("document.getElementById('toast').hidden = true");
+      await p.click(button);
+      await sleep(200);
+      assert(lf((await p.readClipboard())["text/plain"]) === "SENTINEL-T34" && byKey === await p.toast(), `(a) ${key}: ${byKey} / ${await p.toast()}`);
+    }
+    await setMarked(p, "---\na: 1\n---\n");
+    await p.setClipboard("SENTINEL-T34");
+    await press(p, "c", { ctrl: true, shift: true });
+    await sleep(200);
+    assert(lf((await p.readClipboard())["text/plain"]) === "SENTINEL-T34" && await p.toast() === await msg(p, "nothingToCopy"), `(b): ${await p.toast()}`);
+    // (d) IME 変換中
+    await setMarked(p, "# 題");
+    await p.setClipboard("SENTINEL-T34");
+    await p.eval("document.getElementById('source').dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))");
+    await press(p, "m", { ctrl: true, shift: true });
+    await sleep(200);
+    assert(lf((await p.readClipboard())["text/plain"]) === "SENTINEL-T34", "(d) 変換中にコピーした");
+    await p.eval("document.getElementById('source').dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }))");
+    await press(p, "m", { ctrl: true, shift: true });
+    await sleep(200);
+    assert(lf((await p.readClipboard())["text/plain"]) === await p.value(), "(d) 確定後");
+    // (e) ダイアログを開いている間
+    for (const [open, id] of [["#openPaste", "pasteDialog"], ["#openKeys", "keysDialog"], ["#about", "aboutDialog"]]) {
+      await p.click("#settingsMenuButton");
+      await p.click(open);
+      await p.setClipboard("SENTINEL-T34");
+      await press(p, "c", { ctrl: true, shift: true });
+      await press(p, "m", { ctrl: true, shift: true });
+      await press(p, "h", { ctrl: true });
+      await sleep(200);
+      assert(lf((await p.readClipboard())["text/plain"]) === "SENTINEL-T34" && !(await visible(p, "searchBar")) && await p.eval(`document.getElementById('${id}').open`), `(e) ${id}`);
+      await p.eval(`document.getElementById('${id}').close()`);
+    }
+    // (c) 書き込みの失敗（最後に行う）
+    await setMarked(p, "# 題");
+    await p.eval("navigator.clipboard.write = () => Promise.reject(new DOMException('denied', 'NotAllowedError')); navigator.clipboard.writeText = () => Promise.reject(new DOMException('denied', 'NotAllowedError'));");
+    for (const [key, button] of [["c", "copyRich"], ["m", "copyMarkdown"]]) {
+      await press(p, key, { ctrl: true, shift: true });
+      await sleep(200);
+      assert((await p.toast()).startsWith("ERROR:") && !(await p.eval(`document.getElementById('${button}').classList.contains('copied')`)), `(c) ${key}: ${await p.toast()}`);
+    }
+    assert(await p.value() === "# 題", "(c) 値が変わった");
+  });
+
+  await check("1.4.0 総合 T-35: Ctrl+H の検索語に入れる選択の長さ（200文字まで・改行なし）", async () => {
+    for (const [value, expected] of [["x".repeat(199), "x".repeat(199)], ["x".repeat(200), "x".repeat(200)], ["x".repeat(201), ""], ["ab\ncd", ""]]) {
+      const p = await open140();
+      await setMarked(p, `«${value}»`);
+      await press(p, "h", { ctrl: true });
+      const got = await p.eval("document.getElementById('searchQuery').value");
+      assert(got === expected && await p.value() === value && JSON.stringify(await sel(p)) === JSON.stringify([0, value.length]), `${value.length}: ${got.length}`);
+      await cdp.send("Target.closeTarget", { targetId: p.targetId }).catch(() => {});
+    }
+  });
+
+  await check("1.4.0 総合 T-36: 検索語は文字どおり・重ならない・大文字小文字・絵文字・置換後の $", async () => {
+    const p = await open140();
+    await setMarked(p, "a.b axb a.b (x) $1 \\d [z]");
+    await press(p, "h", { ctrl: true });
+    for (const [query, count] of [["a.b", L140.total(2)], ["(x)", L140.total(1)], ["$1", L140.total(1)], ["\\d", L140.total(1)], ["[z]", L140.total(1)], [".*", L140.none]]) {
+      await typeQuery(p, "searchQuery", query);
+      assert(await text140(p, "searchCount") === count, `(a) ${query}: ${await text140(p, "searchCount")}`);
+    }
+    for (const [value, count] of [["aaaa", 2], ["aaa", 1]]) {
+      await setMarked(p, value);
+      await typeQuery(p, "searchQuery", "aa");
+      assert(await text140(p, "searchCount") === L140.total(count), `(b) ${value}`);
+    }
+    await setMarked(p, "‸İİabcABC");
+    await typeQuery(p, "searchQuery", "abc");
+    assert(await text140(p, "searchCount") === L140.total(2), `(c) 件数: ${await text140(p, "searchCount")}`);
+    const selected = () => p.eval("(() => { const s = document.getElementById('source'); return s.value.slice(s.selectionStart, s.selectionEnd); })()");
+    await p.click("#searchNext");
+    assert(await selected() === "abc", `(c) 1回目: ${await selected()}`);
+    await p.click("#searchNext");
+    assert(await selected() === "ABC" && await text140(p, "searchCount") === "2 / 2", `(c) 2回目: ${await selected()}`);
+    await setMarked(p, "‸👍x👍");
+    await typeQuery(p, "searchQuery", "👍");
+    assert(await text140(p, "searchCount") === L140.total(2), "(d) 件数");
+    for (let i = 0; i < 2; i++) {
+      await p.click("#searchNext");
+      assert(await selected() === "👍", `(d) ${i + 1}回目: ${await selected()}`);
+    }
+    await setMarked(p, "a b a");
+    await typeQuery(p, "searchQuery", "a");
+    await typeQuery(p, "searchReplace", "$&$$");
+    await p.click("#replaceAll");
+    assert(await p.value() === "$&$$ b $&$$", `(e): ${await p.value()}`);
+    await setMarked(p, "«a» b a");
+    await typeQuery(p, "searchReplace", "aa");
+    await p.eval("document.getElementById('source').setSelectionRange(0, 1)");
+    await p.click("#replaceOne");
+    assert(await p.value() === "aa b a" && JSON.stringify(await sel(p)) === "[5,6]", `(f) 置換: ${await p.value()} ${await sel(p)}`);
+    await setMarked(p, "a b a");
+    await p.click("#replaceAll");
+    assert(await p.value() === "aa b aa" && await p.toast() === L140.replaced(2), `(f) すべて: ${await p.value()} ${await p.toast()}`);
+    await setMarked(p, "a b a");
+    await typeQuery(p, "searchReplace", "");
+    await p.click("#replaceAll");
+    assert(await p.value() === " b ", `(g): ${JSON.stringify(await p.value())}`);
+  });
+
+  await check("1.4.0 総合 T-37: 検索の件数の更新・置換の順・一致の枠（レビュー R6）・Undo・クリア・編集欄を閉じる", async () => {
+    const p = await open140();
+    await setMarked(p, DS);
+    await press(p, "h", { ctrl: true });
+    await typeQuery(p, "searchQuery", "apple");
+    assert(await text140(p, "searchCount") === L140.total(5), "件数");
+    await p.eval("(() => { const s = document.getElementById('source'); s.focus(); s.setSelectionRange(s.value.length, s.value.length); })()");
+    await p.send("Input.insertText", { text: " apple" });
+    await sleep(100);
+    assert(await text140(p, "searchCount") === L140.total(6), `(a): ${await text140(p, "searchCount")}`);
+    // (b)
+    await setMarked(p, `${DS.slice(0, 18)}‸${DS.slice(18)}`);
+    await p.click("#searchNext");
+    assert(JSON.stringify(await sel(p)) === "[25,30]", `(b) 次へ: ${await sel(p)}`);
+    await typeQuery(p, "searchQuery", "pie");
+    assert(await text140(p, "searchCount") === L140.total(1), `(b) 件数: ${await text140(p, "searchCount")}`);
+    await typeQuery(p, "searchReplace", "PIE");
+    await p.click("#replaceOne");
+    const pie = DS.indexOf("pie");
+    assert(await p.value() === DS && JSON.stringify(await sel(p)) === JSON.stringify([pie, pie + 3]) && await text140(p, "searchCount") === "1 / 1", `(b) 1回目: ${await sel(p)} ${await text140(p, "searchCount")}`);
+    await p.click("#replaceOne");
+    assert(await p.value() === DS.replace("pie", "PIE"), "(b) 2回目");
+    // (c) 一致の枠: 選んだ直後・編集欄・検索欄へ戻る（クリック・Shift+Tab）・手で選んだ一致・置換後の欄・閉じた後
+    await setMarked(p, DS);
+    await typeQuery(p, "searchQuery", "apple");
+    await p.eval("document.getElementById('source').setSelectionRange(0, 0)");
+    await p.click("#searchNext");
+    assert(await hl(p) >= 1, "(c) 選んだ直後に枠がない");
+    await p.eval("document.getElementById('source').focus()");
+    assert(await hl(p) === 0, "(c) 編集欄で枠が消えない");
+    await p.click("#searchQuery");
+    assert(await hl(p) >= 1 && await active(p) === "searchQuery", `(c) クリックで検索欄へ戻った後の枠: ${await hl(p)}`);
+    await p.eval("document.getElementById('source').focus()");
+    await press(p, "Tab", { shift: true });
+    assert(await active(p) !== "source" && await hl(p) >= 1, `(c) Shift+Tab で戻った後の枠: ${await active(p)} ${await hl(p)}`);
+    await p.eval("document.getElementById('source').focus(); document.getElementById('source').setSelectionRange(35, 40)");
+    await p.click("#searchQuery");
+    assert(await hl(p) >= 1, "(c) 手で選んだ一致の枠");
+    await p.eval("document.getElementById('source').focus()");
+    await p.click("#searchReplace");
+    assert(await hl(p) >= 1, "(c) 置換後の欄へ移った後の枠");
+    await p.click("#searchClose");
+    await p.eval("document.getElementById('source').blur()");
+    assert(await hl(p) === 0, "(c) 閉じた後に枠が出た");
+    // (d)
+    await setMarked(p, DS);
+    await press(p, "h", { ctrl: true });
+    await typeQuery(p, "searchQuery", "apple");
+    await typeQuery(p, "searchReplace", "x");
+    await p.click("#replaceAll");
+    assert(await text140(p, "searchCount") === L140.none, `(d) 置換後: ${await text140(p, "searchCount")}`);
+    await p.eval("document.getElementById('source').focus()");
+    await press(p, "z", { ctrl: true });
+    const countD = await text140(p, "searchCount");
+    assert(await p.value() === DS && (countD === L140.total(5) || / \/ 5$/u.test(countD)), `(d) Undo: ${countD}`);
+    // (e)
+    await p.click("#clear");
+    await p.click("#clearDialog button[value='clear']");
+    await setMarked(p, "x y");
+    await press(p, "h", { ctrl: true });
+    const countE = await text140(p, "searchCount");
+    assert(!/5/u.test(countE), `(e): ${countE}`);
+    // (f)
+    await p.click("#toggleSource");
+    assert(!(await visible(p, "searchBar")), "(f) 編集欄を閉じても検索バーが見える");
+  });
+
+  await check("1.4.0 総合 T-38: 検索の一致へのスクロールと枠の位置", async () => {
+    const p = await open140();
+    await setMarked(p, DL300);
+    await p.eval("(() => { const s = document.getElementById('source'); s.scrollTop = 0; s.setSelectionRange(0, 0); })()");
+    await press(p, "h", { ctrl: true });
+    await typeQuery(p, "searchQuery", "目標");
+    await p.click("#searchNext");
+    const at = DL300.indexOf("目標");
+    assert(JSON.stringify(await sel(p)) === JSON.stringify([at, at + 2]), `(1) 選択: ${await sel(p)}`);
+    const geo = () => p.eval("(() => { const s = document.getElementById('source'); const cs = getComputedStyle(s); const lh = parseFloat(cs.lineHeight); const top = parseFloat(cs.paddingTop) + 249 * lh - s.scrollTop; const box = document.getElementById('searchHighlight').children[0]; const er = s.getBoundingClientRect(); return { top, lh, h: s.clientHeight, scrollTop: s.scrollTop, max: s.scrollTop >= s.scrollHeight - s.clientHeight - 1, mark: box ? box.getBoundingClientRect().top - er.top - s.clientTop : null }; })()");
+    const g = await geo();
+    assert(g.top >= 0 && g.top < g.h && (Math.abs(g.top - g.h / 3) <= g.lh || g.max), `(1) 位置: ${JSON.stringify(g)}`);
+    await p.click("#searchNext");
+    assert((await geo()).scrollTop === g.scrollTop, "(1) 2回目でスクロールした");
+    assert(g.mark !== null && Math.abs(g.mark - g.top) <= 2, `(2) 枠の位置: ${JSON.stringify(g)}`);
+    await p.eval("(() => { const s = document.getElementById('source'); s.scrollTop += 30; s.dispatchEvent(new Event('scroll')); })()");
+    await sleep(50);
+    const g2 = await geo();
+    assert(Math.abs((g.mark - g2.mark) - 30) <= 1, `(2) スクロールの後: ${g.mark} → ${g2.mark}`);
+    const long = "検索".repeat(200);
+    await setMarked(p, `‸${long}`);
+    await typeQuery(p, "searchQuery", long);
+    await p.click("#searchNext");
+    assert(await hl(p) >= 2, `(3) 枠の数: ${await hl(p)}`);
+  });
+
+  await check("1.4.0 総合 T-39: 語数を数える上限（20万文字）の前後", async () => {
+    const p = await open140();
+    for (const [n, words] of [[199999, true], [200000, true]]) {
+      await setMarked(p, "a".repeat(n), 500);
+      assert(await stats140(p) === L140.stats(n.toLocaleString(), 1, 1), `${n}: ${await stats140(p)}`);
+    }
+    await setMarked(p, "a".repeat(200001), 500);
+    const over = await stats140(p);
+    assert(over.includes("—") && !/\d\s*(語|words)/u.test(over), `200,001: ${over}`);
+    await p.eval("(() => { const s = document.getElementById('source'); s.focus(); s.setSelectionRange(s.value.length, s.value.length); })()");
+    await press(p, "Backspace");
+    await sleep(500);
+    assert(await stats140(p) === L140.stats("200,000", 1, 1), `Backspace の後: ${await stats140(p)}`);
+    await setMarked(p, `«${"a".repeat(200001)}»`, 500);
+    const selected = await stats140(p);
+    assert(selected.startsWith(`${L140.selection("200,001", 1)} · `) && selected.includes("—"), `(d): ${selected}`);
+  });
+
+  await check("1.4.0 総合 T-40: 各操作の後の文字数の表示", async () => {
+    const p = await open140();
+    await setMarked(p, "a a");
+    await press(p, "h", { ctrl: true });
+    await typeQuery(p, "searchQuery", "a");
+    await typeQuery(p, "searchReplace", "bb");
+    await p.click("#replaceAll");
+    await sleep(400);
+    assert(await stats140(p) === L140.stats(5, 1, 2), `(a): ${await stats140(p)}`);
+    await p.click("#searchClose");
+    await setMarked(p, "- a‸");
+    await press(p, "Enter");
+    await sleep(400);
+    assert(await stats140(p) === L140.stats(5, 2, 1), `(b): ${await stats140(p)}`);
+    await setMarked(p, "# A");
+    await p.format("headingDown");
+    await sleep(400);
+    assert(await stats140(p) === L140.stats(4, 1, 1), `(c): ${await stats140(p)}`);
+    await press(p, "z", { ctrl: true });
+    await sleep(400);
+    assert(await stats140(p) === L140.stats(3, 1, 1), `(c) Undo: ${await stats140(p)}`);
+    await setMarked(p, "前 «説明» 後");
+    await p.setClipboard("https://e.x");
+    await press(p, "v", { ctrl: true });
+    await sleep(400);
+    let want = await expectedStats(p);
+    assert(await p.value() === "前 [説明](https://e.x) 後" && (await stats140(p)).startsWith(ja ? `${want.chars} 文字 · ${want.lines} 行` : `${want.chars} characters · ${want.lines} lines`), `(d): ${await stats140(p)}`);
+    await p.click("#clear");
+    await p.click("#clearDialog button[value='clear']");
+    await sleep(400);
+    assert(await stats140(p) === L140.stats(0, 0, 0), `(e): ${await stats140(p)}`);
+    await setMarked(p, "- [ ] a", 600);
+    await p.click("#toggleSource");
+    await clickBoxIn(p, "a");
+    await p.click("#toggleSource");
+    await sleep(400);
+    want = await expectedStats(p);
+    assert(await p.value() === "- [x] a" && await stats140(p) === L140.stats(7, 1, want.words), `(f): ${await stats140(p)} / ${JSON.stringify(want)}`);
+    await setMarked(p, "x‸", 400);
+    const beforeIme = await stats140(p);
+    await p.send("Input.imeSetComposition", { text: "あ", selectionStart: 1, selectionEnd: 1 });
+    await sleep(400);
+    assert(await stats140(p) === beforeIme, `(g) 変換中: ${await stats140(p)}`);
+    await p.send("Input.insertText", { text: "あ" });
+    await sleep(400);
+    assert((await stats140(p)).startsWith(ja ? "2 文字" : "2 characters"), `(g) 確定後: ${await stats140(p)}`);
+  });
+
+  await check("1.4.0 総合 T-41: 目次の上限（200項目）と並び", async () => {
+    const p = await open140();
+    const heads = (n) => Array.from({ length: n }, (_, i) => `## 見出し${i + 1}`).join("\n\n");
+    for (const [n, count, last] of [[199, 199, "見出し199"], [200, 200, "見出し200"], [201, 200, "見出し200"]]) {
+      await setMarked(p, heads(n), 800);
+      const items = await tocTexts(p);
+      assert(items.length === count && items.at(-1) === last, `(${n}) ${items.length} ${items.at(-1)}`);
+    }
+    const mixed = [...Array.from({ length: 100 }, (_, i) => `# A${i + 1}`), ...Array.from({ length: 101 }, (_, i) => `B${i + 1}\n===`)].join("\n\n");
+    await setMarked(p, mixed, 800);
+    const items = await tocTexts(p);
+    const expected = [...Array.from({ length: 100 }, (_, i) => `A${i + 1}`), ...Array.from({ length: 100 }, (_, i) => `B${i + 1}`)];
+    assert(JSON.stringify(items) === JSON.stringify(expected), `(d) ${items.length} ${items.at(-1)}`);
+    await setMarked(p, `<h2>HTML</h2>\n\n${heads(200)}`, 800);
+    const withHtml = await tocTexts(p);
+    assert(withHtml.length === 200 && !withHtml.includes("HTML"), "(e)");
+    await setMarked(p, "#\n\n## 本物", 600);
+    assert(JSON.stringify(await tocTexts(p)) === "[\"本物\"]", "(f)");
+  });
+
+  await check("1.4.0 総合 T-42: 目次の文字・同じ見出し・キーボード操作・最後の見出し・行を取らない", async () => {
+    const p = await open140();
+    await setMarked(p, "## **太字** と `code` と [リンク](https://example.com)\n\n##   余分な   空白   ##", 600);
+    assert(JSON.stringify(await tocTexts(p)) === JSON.stringify(["太字 と code と リンク", "余分な 空白"]), "(a)");
+    const same = ["# 同じ", "", fill(10), "", "# 同じ", "", fill(10)].join("\n");
+    await setMarked(p, same, 800);
+    await p.click("#tocButton");
+    await p.eval("document.querySelectorAll('#tocMenu [role=menuitem]')[1].click()");
+    await sleep(300);
+    const second = same.indexOf("# 同じ", 1);
+    const shownIndex = await p.eval("[...document.querySelectorAll('#preview h1')].findIndex((h) => h.classList.contains('jump-target'))");
+    assert((await sel(p))[0] === second && shownIndex === 1, `(b) ${await sel(p)} ${shownIndex}`);
+    await setMarked(p, DT, 1000);
+    const focusedItem = () => p.eval("(() => { const list = [...document.querySelectorAll('#tocMenu [role=menuitem]')]; return list.indexOf(document.activeElement); })()");
+    await p.eval("document.getElementById('tocButton').focus()");
+    await press(p, "Enter");
+    assert(await menuOpen(p, "tocMenu") && await focusedItem() === 0, "(c) Enter で開く");
+    await press(p, "ArrowDown");
+    assert(await focusedItem() === 1, "(c) ↓");
+    await press(p, "ArrowUp");
+    assert(await focusedItem() === 0, "(c) ↑");
+    await press(p, "Escape");
+    assert(!(await menuOpen(p, "tocMenu")) && await active(p) === "tocButton", "(c) Esc");
+    await press(p, " ");
+    assert(await menuOpen(p, "tocMenu") && await focusedItem() === 0, "(c) Space で開く");
+    await press(p, "Escape");
+    await press(p, "ArrowDown");
+    assert(await menuOpen(p, "tocMenu") && await focusedItem() === 0, "(c) ↓で開く");
+    for (let i = 0; i < 3; i++) {
+      await press(p, "ArrowDown");
+    }
+    await press(p, "Enter");
+    await sleep(300);
+    const top = await headingTop(p, "h1", "章2");
+    assert((Math.abs(top.y - 16) <= 2 || top.max) && top.shown && (await sel(p))[0] === DT.indexOf("章2\n===") && await active(p) === "tocButton", `(c) 章2: ${JSON.stringify(top)}`);
+    await setMarked(p, `${fill(10)}\n\n# 最後`, 800);
+    await p.click("#tocButton");
+    await p.eval("document.querySelector('#tocMenu [role=menuitem]').click()");
+    await sleep(300);
+    const lastTop = await headingTop(p, "h1", "最後");
+    assert(lastTop.max && lastTop.shown, `(d): ${JSON.stringify(lastTop)}`);
+    const firstP = () => p.eval("(() => { const s = document.getElementById('previewScroller'); s.scrollTop = 0; return document.querySelector('#preview p').getBoundingClientRect().top - s.getBoundingClientRect().top; })()");
+    await setMarked(p, "段落X", 600);
+    const y1 = await firstP();
+    await setMarked(p, "段落X\n\n# 見出し", 600);
+    const y2 = await firstP();
+    assert(Math.abs(y1 - y2) <= 0.5, `(e) ${y1} / ${y2}`);
+  });
+
+  await check("1.4.0 総合 T-43: 目次は反映前の編集・手動更新・全文フェンス・Frontmatter・クリアに従う", async () => {
+    const p = await open140();
+    await setMarked(p, DT, 1000);
+    await p.eval("(() => { const s = document.getElementById('source'); s.focus(); s.setSelectionRange(s.value.length, s.value.length); })()");
+    await p.send("Input.insertText", { text: "\n\n# 新しい章" });
+    await p.click("#tocButton");
+    const items = await p.eval("[...document.querySelectorAll('#tocMenu [role=menuitem]')].map((b) => b.textContent)");
+    await press(p, "Escape");
+    assert(items.at(-1) === "新しい章", `(a): ${JSON.stringify(items)}`);
+    await setMarked(p, DM, 800);
+    assert(await visible(p, "refreshPreview"), "(b) 手動更新にならない");
+    await p.click("#refreshPreview");
+    await sleep(800);
+    await p.eval("(() => { const s = document.getElementById('source'); s.focus(); s.setSelectionRange(0, 0); })()");
+    await p.send("Input.insertText", { text: "# 未反映の章\n\n" });
+    await sleep(300);
+    const stale = await tocTexts(p);
+    assert(stale.includes("先頭") && !stale.includes("未反映の章"), `(b) 更新前: ${JSON.stringify(stale)}`);
+    await p.click("#refreshPreview");
+    await sleep(800);
+    assert((await tocTexts(p))[0] === "未反映の章", "(b) 更新後");
+    await setMarked(p, DT, 800);
+    await setMarked(p, "段落だけ", 1000);
+    assert(!(await visible(p, "tocWrap")), "(c)");
+    const D2 = ["```markdown", "# 外側の中の見出し", "", "中の段落", "", ...Array.from({ length: 30 }, (_, i) => [`埋め草${i + 1}`, ""]).flat(), "```"].join("\n");
+    await setMarked(p, D2, 800);
+    assert(!(await visible(p, "tocWrap")), "(d) 除外前");
+    await p.click("#toggleFence");
+    await sleep(400);
+    assert(await visible(p, "tocWrap") && JSON.stringify(await tocTexts(p)) === "[\"外側の中の見出し\"]", "(d) 除外後");
+    await p.click("#toggleFence");
+    await setMarked(p, "---\ntitle: x\n---\n# 本文の見出し", 600);
+    assert(JSON.stringify(await tocTexts(p)) === "[\"本文の見出し\"]", "(e)");
+    await setMarked(p, DT, 800);
+    await p.click("#clear");
+    await p.click("#clearDialog button[value='clear']");
+    await sleep(300);
+    assert(!(await visible(p, "tocWrap")), "(f) クリアの後");
+    await setMarked(p, "# 別の文書", 600);
+    assert(JSON.stringify(await tocTexts(p)) === "[\"別の文書\"]", "(f)");
+  });
+
+  await check("1.4.0 総合 T-44: チェックボックスは反映前の編集・手動更新・Undo に従う", async () => {
+    const p = await open140();
+    await setMarked(p, DC, 1000);
+    await p.eval("(() => { const s = document.getElementById('source'); s.focus(); s.setSelectionRange(s.value.length, s.value.length); })()");
+    const point = await boxIn(p, "未完了");
+    await p.send("Input.insertText", { text: "Z" });
+    await p.mouse(point.x, point.y);
+    await sleep(500);
+    assert(await p.value() === `${DC}Z` && (await p.eval("document.getElementById('preview').textContent")).includes("Z"), "(a) 1回目");
+    await sleep(500);
+    await clickBoxIn(p, "未完了");
+    assert(await p.value() === `${DC}Z`.replace("- [ ] 未完了", "- [x] 未完了"), "(a) 2回目");
+    await setMarked(p, DM, 800);
+    await p.click("#refreshPreview");
+    await sleep(800);
+    await clickBoxIn(p, "手動の項目");
+    assert(await p.value() === DM.replace("- [ ] 手動の項目", "- [x] 手動の項目") && await boxChecked(p, "手動の項目"), "(b) 1回目");
+    await p.eval("(() => { const s = document.getElementById('source'); s.focus(); s.setSelectionRange(0, 0); })()");
+    await p.send("Input.insertText", { text: "Y" });
+    await clickBoxIn(p, "手動の項目");
+    assert(await p.value() === `Y${DM.replace("- [ ] 手動の項目", "- [x] 手動の項目")}`, "(b) 2回目");
+    await setMarked(p, DC, 1000);
+    await clickBoxIn(p, "未完了");
+    await p.eval("document.getElementById('source').focus()");
+    await press(p, "z", { ctrl: true });
+    await sleep(1000);
+    assert(await p.value() === DC && !(await boxChecked(p, "未完了")), "(c)");
+  });
+
+  await check("1.4.0 総合 T-45: チェックボックスの切り替えの範囲（編集欄の開閉・選択・ダブルクリック・入れ子・生 HTML（レビュー R2））", async () => {
+    const p = await open140();
+    await setMarked(p, DC, 1000);
+    await p.click("#toggleSource");
+    await clickBoxIn(p, "未完了");
+    assert(await p.value() === DC.replace("- [ ] 未完了", "- [x] 未完了"), "(a) 1回目");
+    await clickBoxIn(p, "未完了");
+    assert(await p.value() === DC && !(await sourceOpen(p)), "(a) 2回目");
+    await p.click("#toggleSource");
+    await p.eval("(() => { const s = document.getElementById('source'); s.focus(); s.setSelectionRange(3, 8); s.scrollTop = 40; })()");
+    const scrollTop = await p.eval("document.getElementById('source').scrollTop");
+    await clickBoxIn(p, "未完了");
+    assert(await p.value() === DC.replace("- [ ] 未完了", "- [x] 未完了") && JSON.stringify(await sel(p)) === "[3,8]" && await p.eval("document.getElementById('source').scrollTop") === scrollTop, "(b)");
+    await setMarked(p, DC, 1000);
+    const dbl = await boxIn(p, "完了");
+    await p.mouse(dbl.x, dbl.y, { count: 2 });
+    await sleep(500);
+    assert(await p.value() === DC.replace("- [x] 完了", "- [ ] 完了"), "(c)");
+    await setMarked(p, DC, 1000);
+    const textPoint = await p.eval("(() => { const li = [...document.querySelectorAll('#preview li')].find((el) => el.textContent.trim().startsWith('未完了')); const node = [...li.childNodes].find((n) => n.nodeType === 3 && n.textContent.includes('未完了')); const range = document.createRange(); range.selectNodeContents(node); const r = range.getBoundingClientRect(); return { x: r.right - 4, y: r.top + r.height / 2 }; })()");
+    await p.mouse(textPoint.x, textPoint.y);
+    await sleep(400);
+    assert(await p.value() === DC, "(d)");
+    await p.eval("[...document.querySelectorAll('#preview li')].filter((el) => el.textContent.trim().startsWith('同じ'))[1].setAttribute('data-second', '')");
+    const second = await p.eval("(() => { const box = document.querySelector('#preview li[data-second] input'); box.scrollIntoView({ block: 'center' }); const r = box.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()");
+    await p.mouse(second.x, second.y);
+    await sleep(500);
+    assert(await p.value() === DC.replace("- [ ] 同じ\n- [ ] 同じ", "- [ ] 同じ\n- [x] 同じ"), "(e)");
+    await setMarked(p, DC, 1000);
+    await clickBoxIn(p, "子");
+    assert(await p.value() === DC.replace("  - [ ] 子", "  - [x] 子"), "(f)");
+    const fm = "---\na: 1\n---\n```markdown\n- [ ] フェンスの中\n```";
+    await setMarked(p, fm, 600);
+    await p.click("#toggleFence");
+    await sleep(300);
+    await clickBoxIn(p, "フェンスの中");
+    assert(await p.value() === fm.replace("- [ ] フェンスの中", "- [x] フェンスの中"), "(g)");
+    await p.click("#toggleFence");
+    await enableAllFeatures(p);
+    const ct = "::: note\n- [ ] 枠の中\n:::\n\n> [!NOTE]\n> - [ ] 注意の中";
+    await setMarked(p, ct, 600);
+    await clickBoxIn(p, "枠の中");
+    assert(await p.value() === ct.replace("- [ ] 枠の中", "- [x] 枠の中"), "(h) 枠の中");
+    const now = await p.value();
+    await clickBoxIn(p, "注意の中");
+    assert(await p.value() === now, "(h) 注意の中");
+    // (i) 項目の中の生 HTML の input（レビュー R2）
+    for (const [source, text, rawIndex, toggled] of [
+      ["- [ ] task <input type=\"checkbox\">", "task", 1, "- [x] task <input type=\"checkbox\">"],
+      ["- [x] task <input type=\"checkbox\" checked>", "task", 1, "- [ ] task <input type=\"checkbox\" checked>"],
+      ["- [ ] task <input type=\"checkbox\" checked>", "task", 1, "- [x] task <input type=\"checkbox\" checked>"],
+      ["- [ ] task\n\n  段落 <input type=\"checkbox\">", "task", 1, "- [x] task\n\n  段落 <input type=\"checkbox\">"],
+      ["- [ ] 親 <input type=\"checkbox\">\n  - [x] 子", "親", 1, "- [x] 親 <input type=\"checkbox\">\n  - [x] 子"],
+    ]) {
+      for (const closed of [false, true]) {
+        await setMarked(p, source, 600);
+        if (closed) {
+          await p.click("#toggleSource");
+        }
+        const rawBefore = await boxChecked(p, text, rawIndex);
+        await clickBoxIn(p, text, rawIndex);
+        assert(await p.value() === source && await boxChecked(p, text, rawIndex) === rawBefore, `(i) ${JSON.stringify(source)} ${closed ? "閉" : "開"} クリック: ${JSON.stringify(await p.value())}`);
+        await p.eval(`[...document.querySelectorAll('#preview li')].find((el) => el.textContent.trim().startsWith(${JSON.stringify(text)})).querySelectorAll('input')[${rawIndex}].focus()`);
+        await press(p, " ");
+        await sleep(300);
+        assert(await p.value() === source, `(i) ${JSON.stringify(source)} Space`);
+        await clickBoxIn(p, text, 0);
+        assert(await p.value() === toggled, `(i) ${JSON.stringify(source)} ${closed ? "閉" : "開"} タスクの box: ${JSON.stringify(await p.value())}`);
+        if (closed) {
+          await p.click("#toggleSource");
+        } else {
+          await p.eval("document.getElementById('source').focus()");
+          await press(p, "z", { ctrl: true });
+          assert(await p.value() === source, `(i) ${JSON.stringify(source)} の Undo`);
+        }
+      }
+    }
+    // 子の box は子の行だけ
+    await setMarked(p, "- [ ] 親 <input type=\"checkbox\">\n  - [x] 子", 600);
+    await clickBoxIn(p, "子");
+    assert(await p.value() === "- [ ] 親 <input type=\"checkbox\">\n  - [ ] 子", "(i) 入れ子の子");
+    await clickBoxIn(p, "親", 0);
+    await p.click("#copyRich");
+    const clip = await p.readClipboard();
+    assert(clip["text/plain"].includes("☑ 親"), `(i) コピー: ${clip["text/plain"]}`);
+  });
+
+  await check("1.4.0 総合 T-46: チェックボックスの切り替えとコピー・disabled なし・ページを離れない", async () => {
+    const p = await open140();
+    await setMarked(p, DC, 1000);
+    const href = await p.eval("location.href");
+    const targets = (await cdp.send("Target.getTargets")).targetInfos.filter((t) => t.type === "page").length;
+    const dialogCount = dialogs.length;
+    await clickBoxIn(p, "未完了");
+    await p.click("#copyRich");
+    const clip = await p.readClipboard();
+    assert(clip["text/html"].includes("☑ 未完了") && clip["text/plain"].includes("☑ 未完了") && clip["text/plain"].includes("☐ 同じ") && clip["text/html"].includes("☐ 同じ"), "コピー");
+    assert(await p.eval("document.querySelectorAll('#preview input[disabled]').length") === 0, "disabled の input がある");
+    assert(await p.eval("location.href") === href && (await cdp.send("Target.getTargets")).targetInfos.filter((t) => t.type === "page").length === targets && dialogs.length === dialogCount, "ページを離れた・タブやダイアログが開いた");
+  });
+
+  await check("1.4.0 総合 T-47 (3): 閉じない引用符の HTML を貼り付け・設定しても固まらない", async () => {
+    const p = await open140();
+    await setPasteHtml(p, true);
+    const X40 = `<div ${"x ".repeat(40)}"`;
+    await setMarked(p, "");
+    await p.setClipboard("太字", `${X40}<b>太字</b>`);
+    await p.eval("document.getElementById('source').focus()");
+    const started = Date.now();
+    await press(p, "v", { ctrl: true });
+    assert(await p.value() !== "" && Date.now() - started < 1000, `貼り付け: ${await p.value()} ${Date.now() - started}ms`);
+    await p.click("#clear");
+    await p.click("#clearDialog button[value='clear']");
+    await setMarked(p, `${X40}\n\n段落`, 1000);
+    assert((await p.eval("document.getElementById('preview').textContent")).includes("段落") && !(await visible(p, "refreshPreview")), "設定");
+  });
+
+  await check("1.4.0 総合 T-50: 保存・通信は増えない（操作を一通り行う）", async () => {
+    const p = await open140();
+    const storage = () => p.eval("chrome.storage.local.get(null)");
+    const before = await storage();
+    externalRequests.length = 0;
+    await setMarked(p, "- 項目‸");
+    await press(p, "Enter");
+    await setMarked(p, "- a\n- b‸");
+    await press(p, "Tab");
+    await setMarked(p, DH);
+    await p.format("headingDown");
+    await setMarked(p, "リンク先の«説明»");
+    await p.setClipboard("https://example.com");
+    await press(p, "v", { ctrl: true });
+    await setMarked(p, "abc «def» ghi");
+    await press(p, "i", { ctrl: true });
+    await press(p, "c", { ctrl: true, shift: true });
+    await press(p, "m", { ctrl: true, shift: true });
+    await setMarked(p, DS);
+    await press(p, "h", { ctrl: true });
+    await typeQuery(p, "searchQuery", "apple");
+    await press(p, "Enter");
+    await typeQuery(p, "searchReplace", "x");
+    await p.click("#replaceOne");
+    await p.click("#replaceAll");
+    await press(p, "Escape");
+    await setMarked(p, DT, 800);
+    await p.click("#tocButton");
+    await p.eval("document.querySelectorAll('#tocMenu [role=menuitem]')[1].click()");
+    await setMarked(p, DC, 800);
+    await clickBoxIn(p, "未完了");
+    const after = await storage();
+    assert(JSON.stringify(after) === JSON.stringify(before) && Object.keys(after).every((k) => ["defaultFeatures", "pasteHtml"].includes(k)), `storage: ${JSON.stringify(after)}`);
+    const web = await p.eval("(async () => ({ local: localStorage.length, session: sessionStorage.length, idb: (await indexedDB.databases()).length, cookie: document.cookie }))()");
+    assert(web.local === 0 && web.session === 0 && web.idb === 0 && web.cookie === "", `Web の保存: ${JSON.stringify(web)}`);
+    const net = externalRequests.filter((u) => /^(?:https?|wss?):/u.test(u));
+    assert(net.length === 0, `通信: ${net.join(", ")}`);
+    await p.send("Page.reload", {});
+    await sleep(800);
+    await p.waitReady();
+    assert(await p.value() === "" && !(await visible(p, "searchBar")) && await stats140(p) === L140.stats(0, 0, 0) && !(await visible(p, "tocWrap")), "再読み込みの後");
+  });
+
+  await check("1.4.0 総合 T-51: 編集しない操作は Undo の履歴に積まれない", async () => {
+    const p = await open140();
+    await setMarked(p, DT, 1000);
+    await p.eval("(() => { const s = document.getElementById('source'); s.focus(); s.setSelectionRange(s.value.length, s.value.length); })()");
+    await p.send("Input.insertText", { text: "X" });
+    await sleep(300);
+    await press(p, "h", { ctrl: true });
+    // 検索語は値の代入で入れる。打ち込んだ文字は Chrome の文書全体の Undo の履歴に入り、編集欄の Ctrl+Z でも戻る（Chrome の標準。拡張の処理のない textarea と input でも同じ。確認記録を参照）
+    await p.eval("(() => { const q = document.getElementById('searchQuery'); q.value = '章'; q.dispatchEvent(new Event('input')); })()");
+    await p.click("#searchCase");
+    await p.click("#searchCase");
+    await p.click("#searchNext");
+    await p.click("#searchPrev");
+    await press(p, "Escape");
+    await p.click("#tocButton");
+    await press(p, "Escape");
+    await p.click("#settingsMenuButton");
+    await p.click("#openKeys");
+    await p.click("#keysDialog button[value='close']");
+    await p.eval("document.getElementById('source').setSelectionRange(2, 10); document.getElementById('source').setSelectionRange(5, 5)");
+    await p.installJumpHelpers();
+    await p.dblclickPreview("p", { index: 1 });
+    await sleep(300);
+    assert(await p.value() === `${DT}X`, "編集しない操作で値が変わった");
+    await p.eval("document.getElementById('source').focus()");
+    await press(p, "z", { ctrl: true });
+    assert(await p.value() === DT, `Undo の1回で戻らない: ${(await p.value()).slice(-10)}`);
+  });
+
+  await check("1.4.0 総合 T-54: 狭い画面の配置と英語の表示", async () => {
+    const p = await open140({ width: 800, height: 900 });
+    await setMarked(p, DT, 1000);
+    await press(p, "h", { ctrl: true });
+    const layout = await p.eval("(() => { const r = (id) => document.getElementById(id).getBoundingClientRect(); const e = r('source'), bar = r('searchBar'), st = r('stats'), t = r('tocButton'), pv = r('previewScroller'); return { barBottom: bar.bottom, eTop: e.top, statsTop: st.top, eBottom: e.bottom, toc: { l: t.left, r: t.right, t: t.top, b: t.bottom }, p: { l: pv.left, r: pv.right, t: pv.top, b: pv.bottom, w: pv.width, h: pv.height } }; })()");
+    const inside = layout.toc.l >= layout.p.l && layout.toc.r <= layout.p.r && layout.toc.t >= layout.p.t && layout.toc.b <= layout.p.b;
+    const topRight = layout.p.r - layout.toc.r <= layout.p.w / 4 && layout.toc.t - layout.p.t <= layout.p.h / 4;
+    assert(layout.barBottom <= layout.eTop + 0.5 && layout.statsTop >= layout.eBottom - 0.5 && inside && topRight, `配置: ${JSON.stringify(layout)}`);
+    await p.screenshot("140-narrow");
+    if (!ja) {
+      const text = await p.eval("document.body.innerText + [...document.querySelectorAll('[title]')].map((e) => e.title).join(' ')");
+      assert(!text.includes("__MSG_"), "英語の画面に未翻訳の文字がある");
+      await typeQuery(p, "searchQuery", "章");
+      assert(/^\d+ matches$/u.test(await text140(p, "searchCount")), `英語の件数: ${await text140(p, "searchCount")}`);
+    }
+  });
+
+  await check("1.4.0 総合 T-55: 検索欄の中のキーは編集欄を変えない", async () => {
+    const p = await open140();
+    await setMarked(p, DS);
+    await press(p, "h", { ctrl: true });
+    await typeQuery(p, "searchQuery", "- a");
+    for (const key of ["i", "k", "e"]) {
+      await press(p, key, { ctrl: true });
+      assert(await p.value() === DS, `Ctrl+${key}`);
+    }
+    await p.eval("document.getElementById('searchQuery').focus()");
+    await press(p, "Tab");
+    assert(await active(p) !== "searchQuery" && await active(p) !== "source" && await p.value() === DS, `Tab: ${await active(p)}`);
+    await typeQuery(p, "searchQuery", "apple");
+    await p.eval("document.getElementById('source').setSelectionRange(1, 1); document.getElementById('searchQuery').focus()");
+    await press(p, "Enter");
+    assert(await p.value() === DS && JSON.stringify(await sel(p)) === "[6,11]", `Enter: ${await sel(p)}`);
   });
 
   await check("Console に未処理のエラー・警告がない", async () => {

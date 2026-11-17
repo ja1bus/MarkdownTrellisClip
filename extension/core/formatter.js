@@ -1,5 +1,7 @@
 // 書式ボタンの処理。原文と選択範囲から「どこを何に置き換え、どこを選択するか」を計算する。
 // 画面側はこの結果を1回の挿入操作として適用するので、1回の Undo で戻せる。
+import { maskCode } from "./extensions.js";
+import { splitFrontmatter } from "./syntax.js";
 
 /**
  * @typedef {{ start: number, end: number, insert: string, selStart: number, selEnd: number }} Edit
@@ -65,6 +67,10 @@ export function formatEdit(command, text, selStart, selEnd, labels = {}) {
       break;
     case "codeblock":
       edit = codeBlock(text, start, end);
+      break;
+    case "headingDown":
+    case "headingUp":
+      edit = shiftHeadings(text, start, end, command === "headingDown" ? 1 : -1);
       break;
     default:
       return null;
@@ -439,4 +445,218 @@ function codeBlock(text, start, end) {
   const fence = "`".repeat(Math.max(3, longest + 1));
   const insert = `${fence}\n${content}\n${fence}`;
   return { start: from, end: to, insert, selStart: from + fence.length + 1, selEnd: from + fence.length + 1 + content.length };
+}
+
+// ---- 1.4.0: キーボード操作（仕様 §2.2）・見出しのシフト・URL の貼り付け ----
+
+// 行頭の「引用の連なり・字下げ・リストの記号」。記号の種類ごとに分けて読む
+const LINE_PREFIX = /^([ \t]*(?:>[ \t]?)*)([ \t]*)/u;
+const TASK_MARK = /^([-*+])([ \t]+)\[[ xX]\]([ \t]+|$)/u;
+// 記号の後ろに空白がないもの（「-」だけの行など）はリストとみなさない（下線の見出しの「-」を Enter で消さないため）
+const BULLET_MARK = /^([-*+])([ \t]+)/u;
+const ORDERED_MARK = /^(\d{1,9})([.)])([ \t]+)/u;
+const THEMATIC_BREAK = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/u;
+
+function lineAt(text, pos) {
+  const from = text.lastIndexOf("\n", pos - 1) + 1;
+  const newline = text.indexOf("\n", pos);
+  return { from, to: newline < 0 ? text.length : newline };
+}
+
+/**
+ * 行の記号を読む。marker は記号（と後ろの空白）、next は次の行に入れる記号。記号がなければ null。
+ * @param {string} line
+ */
+function readMarker(line) {
+  const [, quote, indent] = LINE_PREFIX.exec(line);
+  const rest = line.slice(quote.length + indent.length);
+  let marker = "";
+  let next = "";
+  let m;
+  if ((m = TASK_MARK.exec(rest))) {
+    marker = m[0];
+    next = `${m[1]}${m[2]}[ ]${m[3] === "" ? " " : m[3]}`;
+  } else if ((m = BULLET_MARK.exec(rest))) {
+    marker = m[0];
+    next = m[0];
+  } else if ((m = ORDERED_MARK.exec(rest))) {
+    marker = m[0];
+    next = `${Number(m[1]) + 1}${m[2]}${m[3]}`;
+  }
+  if (marker === "" && !quote.includes(">")) {
+    return null;
+  }
+  // 引用だけのときは、字下げも引用の連なりの一部として続ける
+  return { prefix: quote + indent, marker, next, length: quote.length + indent.length + marker.length };
+}
+
+/**
+ * Enter でリスト・引用の記号を続ける。続けないとき（標準の改行に任せる）は null。
+ * 記号だけの行では、記号を消して空行にする（リストを終える）。
+ * @returns {Edit | null}
+ */
+export function continueList(text, selStart, selEnd) {
+  if (selStart !== selEnd) {
+    return null;
+  }
+  const caret = selStart;
+  const { from, to } = lineAt(text, caret);
+  const line = text.slice(from, to);
+  if (THEMATIC_BREAK.test(line)) {
+    return null;
+  }
+  const info = readMarker(line);
+  if (!info || caret - from < info.length) {
+    return null;
+  }
+  if (line.slice(info.length).trim() === "") {
+    return { start: from, end: to, insert: "", selStart: from, selEnd: from };
+  }
+  const insert = "\n" + info.prefix + info.next;
+  return { start: caret, end: caret, insert, selStart: caret + insert.length, selEnd: caret + insert.length };
+}
+
+const LIST_ITEM = /^([ \t]*)(?:[-*+][ \t]+\[[ xX]\](?=[ \t]|$)|[-*+](?=[ \t]|$)|\d{1,9}[.)](?=[ \t]|$))[ \t]*/u;
+
+// 水平線（「* * *」「- - -」など）。字下げの深さによらずリストの項目とみなさない（レビュー R5）
+const THEMATIC_BREAK_ANY_INDENT = /^[ \t]*([-*_])(?:[ \t]*\1){2,}[ \t]*$/u;
+
+/** リストの項目の字下げ（文字数）と記号の幅（記号＋後ろの空白1つ以上。チェックリストは「- 」まで）。水平線は null。 */
+function listInfo(line) {
+  const m = LIST_ITEM.exec(line);
+  if (!m || THEMATIC_BREAK_ANY_INDENT.test(line)) {
+    return null;
+  }
+  const after = line.slice(m[1].length);
+  const marker = /^(?:[-*+]|\d{1,9}[.)])[ \t]*/u.exec(after)[0];
+  return { indent: m[1].length, width: Math.max(marker.length, marker.trim().length + 1) };
+}
+
+/**
+ * Tab / Shift+Tab でリストの項目を字下げ・字下げ解除する。対象の行（空行を除く）に
+ * リストの項目でない行があれば null（標準の動作に任せる）。
+ * @returns {Edit | null}
+ */
+export function indentList(text, selStart, selEnd, outdent) {
+  const start = Math.min(selStart, selEnd);
+  const end = Math.max(selStart, selEnd);
+  const { from, to } = lineRange(text, start, end);
+  const lines = text.slice(from, to).split("\n");
+  const targets = lines.filter((line) => line.trim() !== "");
+  if (targets.length === 0 || !targets.every((line) => listInfo(line) !== null)) {
+    return null;
+  }
+  const first = listInfo(targets[0]);
+  // 最初の行より上の項目をたどる（空行・項目の続きの行は飛ばす）
+  const above = text.slice(0, from).split("\n").slice(0, -1).reverse();
+  let amount = 0;
+  if (outdent) {
+    amount = first.indent;
+    for (const line of above) {
+      const info = listInfo(line);
+      if (info && info.indent < first.indent) {
+        amount = first.indent - info.indent;
+        break;
+      }
+    }
+  } else {
+    amount = first.width;
+    for (const line of above) {
+      const info = listInfo(line);
+      if (!info) {
+        continue;
+      }
+      if (info.indent === first.indent) {
+        amount = info.width;
+        break;
+      }
+      if (info.indent < first.indent) {
+        break;
+      }
+    }
+  }
+  const edit = mapLines(text, start, end, (all) => all.map((line) => {
+    if (line.trim() === "") {
+      return line;
+    }
+    if (!outdent) {
+      return " ".repeat(amount) + line;
+    }
+    if (line.startsWith("\t")) {
+      return line.slice(1);
+    }
+    const lead = /^ */u.exec(line)[0].length;
+    return line.slice(Math.min(lead, amount));
+  }));
+  if (outdent && amount === 0) {
+    // 字下げがない項目の Shift+Tab は、キーを受け取って何も変えない
+    return { start, end: start, insert: "", selStart, selEnd };
+  }
+  return edit;
+}
+
+const ATX = /^( {0,3})(#{1,6})(?=[ \t]|$)/u;
+
+/**
+ * 見出しのレベルを1段下げる（delta = 1）・上げる（delta = -1）。範囲を選択していればその行、
+ * 未選択なら文書全体。Frontmatter とフェンス付きコードブロックの中は変えない。変わる行がなければ null。
+ */
+function shiftHeadings(text, start, end, delta) {
+  const bodyStart = splitFrontmatter(text).frontmatter.length;
+  const range = start === end ? { from: 0, to: text.length } : lineRange(text, start, end);
+  const masked = maskCode(text.slice(bodyStart));
+  const changes = []; // [#の並びの終わりの位置, 増減]
+  let pos = bodyStart;
+  for (const line of masked.split("\n")) {
+    const lineStart = pos;
+    pos += line.length + 1;
+    if (lineStart < range.from || lineStart > range.to) {
+      continue;
+    }
+    const m = ATX.exec(line);
+    if (!m) {
+      continue;
+    }
+    const level = m[2].length;
+    if ((delta > 0 && level < 6) || (delta < 0 && level > 1)) {
+      changes.push([lineStart + m[0].length, delta]);
+    }
+  }
+  if (changes.length === 0) {
+    return null;
+  }
+  let out = "";
+  let last = 0;
+  for (const [at, d] of changes) {
+    out += d > 0 ? text.slice(last, at) + "#" : text.slice(last, at - 1);
+    last = at;
+  }
+  out += text.slice(last);
+  const map = (offset) => changes.reduce((value, [at, d]) => value + (offset >= at ? d : 0), offset);
+  return { start: 0, end: text.length, insert: out, selStart: map(start), selEnd: map(end) };
+}
+
+/**
+ * 範囲を選択して URL を貼り付けたとき、[選択した文字](URL) にする Edit。対象でなければ null。
+ * @param {string} clipboardText クリップボードの text/plain
+ * @returns {Edit | null}
+ */
+export function linkPaste(text, selStart, selEnd, clipboardText) {
+  const start = Math.min(selStart, selEnd);
+  const end = Math.max(selStart, selEnd);
+  const url = (clipboardText ?? "").trim();
+  if (start === end || !URL_ONLY.test(url)) {
+    return null;
+  }
+  const selected = text.slice(start, end);
+  if (selected.includes("\n")) {
+    return null;
+  }
+  const [s, e] = trimSelection(text, start, end);
+  const inner = text.slice(s, e);
+  if (inner === "" || URL_ONLY.test(inner)) {
+    return null;
+  }
+  const insert = `[${inner}](${url})`;
+  return minimize(text, { start: s, end: e, insert, selStart: s + insert.length, selEnd: s + insert.length });
 }

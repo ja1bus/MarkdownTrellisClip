@@ -2,11 +2,13 @@
 // 保存するのは追加構文の既定値と、書式付きテキストの貼り付けの ON/OFF だけ（settings.js）。
 import { createRenderer } from "./core/render.js";
 import { toClipboardPayload } from "./core/richcopy.js";
-import { formatEdit } from "./core/formatter.js";
+import { formatEdit, minimize, continueList, indentList, linkPaste } from "./core/formatter.js";
+import { findMatches, matchIndexAt, nextMatch, replaceAllText } from "./core/search.js";
+import { textStats } from "./core/stats.js";
 import { buildDownloadName, buildMarkdownBlob } from "./core/download.js";
 import { FEATURES, GITHUB_PRESET, normalizeFeatures, usesOutsideDefinitions } from "./core/extensions.js";
 import { choosePaste } from "./core/htmlpaste.js";
-import { findAnchor, countNewlines, blockLineCount, lineOffsetInBlock } from "./core/anchors.js";
+import { findAnchor, countNewlines, blockLineCount, lineOffsetInBlock, headingList, toggleTaskEdit } from "./core/anchors.js";
 import { loadDefaultFeatures, saveDefaultFeatures, loadPasteHtml, savePasteHtml, watchPasteHtml } from "./settings.js";
 
 const FEATURE_LABELS = {
@@ -25,6 +27,9 @@ const UPDATE_DELAY_MS = 300;
 const JUMP_SHOW_MS = 1200; // 位置の連動で移った箇所を示す時間
 const JUMP_FADE_MS = 650; // 示すのをやめてから薄くし終えるまで（CSS の transition と合わせる）
 const LINK_DBLCLICK_MS = 1000; // リンクを押してからこの間のダブルクリックでは、編集欄へ移らない
+const STATS_DELAY_MS = 120; // 文字数の表示を入力からこの後に数え直す（長い本文で入力を重くしない）
+const SEARCH_SELECTION_MAX = 200; // Ctrl+H で検索語に入れる選択の長さの上限
+const TOC_TOP_MARGIN = 16; // 目次で移った見出しを、プレビューの上端からこの位置に出す
 
 const t = (key, ...subs) => chrome.i18n.getMessage(key, subs.map(String)) || key;
 const $ = (id) => document.getElementById(id);
@@ -41,6 +46,7 @@ const state = {
   unwrapFence: false,
   manual: false,
   composing: false,
+  forwardedPaste: false, // 編集欄の外の Ctrl+V から移した貼り付け（URL のリンク化をしない）
   timer: 0,
   toastTimer: 0,
   features: [], // このタブで有効な追加構文
@@ -51,11 +57,18 @@ const state = {
   anchorByElement: new Map(), // 要素 -> 対応
   jumpTimer: 0,
   linkClickedAt: -Infinity, // 最後にプレビューのリンクを押した時刻（event.timeStamp）
+  stats: { chars: 0, lines: 0, words: 0 }, // 文字数の表示（全体）
+  statsTimer: 0,
 };
+
+// 検索と置換（§2.3）。matches は今の検索語での一致、rects は現在の一致の枠（編集欄の内容の中での位置）
+const search = { open: false, matches: [], rects: [] };
 
 localize();
 bindSource(source);
 bindCommands();
+bindSearch();
+computeStats();
 updateEmptyState();
 updatePasteStatus();
 setSourceVisible(true);
@@ -88,8 +101,8 @@ window.addEventListener("beforeunload", (event) => {
   }
 });
 
-// 選択範囲のコピーは、編集欄で範囲を選択しているときだけ押せるようにする
-document.addEventListener("selectionchange", updateSelectionButton);
+// 選択範囲のコピーは、編集欄で範囲を選択しているときだけ押せるようにする（文字数の選択の数・検索の件数も更新する）
+document.addEventListener("selectionchange", onSelectionChanged);
 
 function localize() {
   document.documentElement.lang = chrome.i18n.getUILanguage().toLowerCase().startsWith("ja") ? "ja" : "en";
@@ -125,8 +138,18 @@ function bindSource(el) {
     onSourceChanged();
   });
   for (const type of ["select", "keyup", "mouseup"]) {
-    el.addEventListener(type, updateSelectionButton);
+    el.addEventListener(type, onSelectionChanged);
   }
+  // 検索の現在の一致の枠は、編集欄にフォーカスがない間だけ出す（フォーカスがあればブラウザーが選択を表示する）
+  el.addEventListener("focus", clearSearchHighlight);
+  // 編集欄からフォーカスが外れたら、枠を描き直す（検索欄へ戻ったときなど。レビュー R6）
+  el.addEventListener("blur", () => {
+    if (search.open) {
+      refreshMatches();
+      drawSearchHighlight();
+    }
+  });
+  el.addEventListener("scroll", positionSearchHighlight);
   // クリックでカーソルを置いたら、その行から作られたプレビューの箇所へ移る（範囲の選択・Shift+クリックでは動かさない）
   el.addEventListener("click", (event) => {
     if (event.button !== 0 || event.shiftKey || event.detail > 1 || state.composing || el.selectionStart !== el.selectionEnd) {
@@ -137,6 +160,16 @@ function bindSource(el) {
   });
   // 設定が ON で、書式付きテキストを Markdown にできるときだけ、標準の貼り付けの代わりに変換結果を入れる（Undo 1回で戻る）
   el.addEventListener("paste", (event) => {
+    // 編集欄の外で押した Ctrl+V を移した貼り付けは、リンクにしない（§2。レビュー R1）
+    const forwarded = state.forwardedPaste;
+    state.forwardedPaste = false;
+    // 文字を選んで URL を貼り付けたら、リンクにする（書式付きテキストの貼り付けより先に判定する。§2）
+    const link = forwarded ? null : linkPaste(el.value, el.selectionStart, el.selectionEnd, event.clipboardData?.getData("text/plain"));
+    if (link) {
+      event.preventDefault();
+      applySourceEdit(link);
+      return;
+    }
     const markdown = convertPaste(event.clipboardData);
     if (markdown !== null) {
       event.preventDefault();
@@ -144,12 +177,32 @@ function bindSource(el) {
     }
   });
   el.addEventListener("keydown", (event) => {
-    if (event.isComposing || state.composing) {
+    if (event.isComposing || state.composing || event.keyCode === 229) {
       return;
     }
-    if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "b") {
+    // 書式のショートカット（§2.2）。配列によらないよう event.code で見る
+    if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey) {
+      const command = { KeyB: "bold", KeyI: "italic", KeyK: "link", KeyE: "code" }[event.code];
+      if (command) {
+        event.preventDefault();
+        applyFormat(command);
+      }
+      return;
+    }
+    if (event.ctrlKey || event.metaKey || event.altKey) {
+      return;
+    }
+    // Enter でリスト・引用の記号を続け、Tab / Shift+Tab でリストの項目を字下げする（§2.2）。
+    // 対象でなければ標準の動作に任せる（Tab ならフォーカスが移る）
+    let edit = null;
+    if (event.key === "Enter" && !event.shiftKey) {
+      edit = continueList(el.value, el.selectionStart, el.selectionEnd);
+    } else if (event.key === "Tab") {
+      edit = indentList(el.value, el.selectionStart, el.selectionEnd, event.shiftKey);
+    }
+    if (edit) {
       event.preventDefault();
-      applyFormat("bold");
+      applySourceEdit(edit);
     }
   });
 }
@@ -179,7 +232,23 @@ function bindCommands() {
   $("syntaxFromBanner").addEventListener("click", openSyntaxDialog);
   $("presetGitHub").addEventListener("click", () => setDialogFeatures(GITHUB_PRESET));
   $("clearFeatures").addEventListener("click", () => setDialogFeatures([]));
+  $("openSearch").addEventListener("click", openSearch);
+  $("openKeys").addEventListener("click", () => $("keysDialog").showModal());
+  // 目次は開く直前に一覧を作る（bindMenus の開く処理より先に登録する。§3.3）
+  $("tocButton").addEventListener("click", buildTocMenu);
+  $("tocButton").addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown") {
+      buildTocMenu();
+    }
+  });
   bindMenus();
+  $("tocMenu").addEventListener("click", (event) => {
+    const item = event.target.closest("[role='menuitem']");
+    if (item?.tocAnchor) {
+      jumpToHeading(item.tocAnchor);
+      $("tocButton").focus();
+    }
+  });
   $("toggleFence").addEventListener("click", () => {
     state.unwrapFence = !state.unwrapFence;
     updatePreview({ force: true });
@@ -202,6 +271,16 @@ function bindCommands() {
 
   // リンクは利用者がクリックしたときだけ、新しいタブで開く
   preview.addEventListener("click", (event) => {
+    // チェックリストのチェックボックスは、原文の [ ] と [x] を切り替える（§3.4）。チェックボックス自体の切り替えは止める
+    const box = event.target.closest("input[type='checkbox']");
+    if (box) {
+      event.preventDefault();
+      // ダブルクリックの2回目以降では切り替えない
+      if (event.detail <= 1) {
+        toggleCheckbox(box);
+      }
+      return;
+    }
     const link = event.target.closest("a");
     if (!link) {
       return;
@@ -255,7 +334,29 @@ function bindCommands() {
     }
     setSourceVisible(true);
     source.focus();
+    // 続く paste は編集欄に届くが、外からの貼り付けとして扱う。貼り付けが起きなくても次へ残さない
+    state.forwardedPaste = true;
+    setTimeout(() => {
+      state.forwardedPaste = false;
+    });
   }, true);
+
+  // 画面全体のショートカット（§2.2）。ダイアログを開いているとき・IME 変換中は何もしない
+  document.addEventListener("keydown", (event) => {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey || event.isComposing || state.composing || document.querySelector("dialog[open]")) {
+      return;
+    }
+    if (event.shiftKey && event.code === "KeyC") {
+      event.preventDefault();
+      copyRich();
+    } else if (event.shiftKey && event.code === "KeyM") {
+      event.preventDefault();
+      copyMarkdown();
+    } else if (!event.shiftKey && event.code === "KeyH") {
+      event.preventDefault();
+      openSearch();
+    }
+  });
 
   // 上で受けられなかった貼り付け（メニューからの貼り付けなど）も、原文へ text/plain だけを取り込む
   // （書式付きテキストの貼り付けが ON なら、原文での貼り付けと同じく Markdown に変換する）
@@ -328,6 +429,14 @@ function updatePasteStatus() {
 function updateSelectionButton() {
   const open = workspace.classList.contains("source-open");
   $("copySelection").disabled = !open || source.selectionStart === source.selectionEnd;
+}
+
+function onSelectionChanged() {
+  updateSelectionButton();
+  renderStats();
+  if (search.open) {
+    updateSearchCount();
+  }
 }
 
 function isEditable(target) {
@@ -487,7 +596,15 @@ function applyFormat(command) {
     source.focus();
     return;
   }
-  source.focus();
+  applySourceEdit(edit);
+}
+
+/**
+ * 編集（formatter.js の Edit）を編集欄に1回の挿入で適用し、選択を置く（1回の Undo で戻る）。
+ * execCommand はフォーカスのある入力欄にだけ効くので、先に編集欄へフォーカスを移す。
+ */
+function applySourceEdit(edit) {
+  source.focus({ preventScroll: true });
   if (edit.start !== edit.end || edit.insert !== "") {
     source.setSelectionRange(edit.start, edit.end);
     insertText(edit.insert);
@@ -503,11 +620,19 @@ function setSourceVisible(visible) {
   toggleSourceButton.setAttribute("aria-label", label);
   toggleSourceButton.setAttribute("aria-expanded", String(visible));
   toggleSourceButton.title = visible ? t("hideSourceTitle") : t("showSourceTitle");
+  if (!visible) {
+    closeSearch({ focus: false });
+  }
   updateSelectionButton();
 }
 
 function onSourceChanged() {
   updateEmptyState();
+  scheduleStats();
+  if (search.open) {
+    clearSearchHighlight();
+    refreshMatches();
+  }
   state.pending = true;
   clearTimeout(state.timer);
   state.timer = setTimeout(() => updatePreview(), UPDATE_DELAY_MS);
@@ -553,6 +678,7 @@ function updatePreview({ force = false } = {}) {
   state.anchors = result.anchors ?? [];
   state.anchorByElement = new Map(state.anchors.map((anchor) => [anchor.element, anchor]));
   scroller.scrollTop = top;
+  updateTocButton();
 
   updateFenceBanner(result);
   updateSyntaxBanner(result.detected);
@@ -662,6 +788,36 @@ function jumpToSource(node, clientY, ratio) {
  * 編集欄は折り返して表示するので、同じ幅・字形・余白・折り返しの見えない要素に offset の前までを入れて測る。
  */
 function caretTop(textarea, offset) {
+  const mirror = createMirror(textarea);
+  mirror.textContent = textarea.value.slice(0, offset);
+  const mark = document.createElement("span");
+  mark.textContent = "​";
+  mirror.append(mark);
+  const top = mark.offsetTop;
+  mirror.remove();
+  return top;
+}
+
+/**
+ * 編集欄の start〜end の文字が表示される矩形（編集欄の内容の中での位置。折り返しで複数になる）。検索の一致の枠に使う。
+ * 一致の行の折り返しが同じになるよう、一致の後ろも行の終わりまで入れて測る。
+ */
+function textRects(textarea, start, end) {
+  const mirror = createMirror(textarea);
+  const value = textarea.value;
+  const newline = value.indexOf("\n", end);
+  mirror.textContent = value.slice(0, start);
+  const mark = document.createElement("span");
+  mark.textContent = value.slice(start, end);
+  mirror.append(mark, document.createTextNode(value.slice(end, newline < 0 ? value.length : newline)));
+  const base = mirror.getBoundingClientRect();
+  const rects = [...mark.getClientRects()].map((r) => ({ left: r.left - base.left, top: r.top - base.top, width: r.width, height: r.height }));
+  mirror.remove();
+  return rects;
+}
+
+/** 編集欄と同じ幅・字形・余白・折り返しの見えない要素（文書に追加して返す。使った後に remove する）。 */
+function createMirror(textarea) {
   const style = getComputedStyle(textarea);
   const mirror = document.createElement("div");
   for (const name of [
@@ -682,14 +838,8 @@ function caretTop(textarea, offset) {
     overflowWrap: style.overflowWrap === "normal" ? "break-word" : style.overflowWrap,
     overflow: "hidden",
   });
-  mirror.textContent = textarea.value.slice(0, offset);
-  const mark = document.createElement("span");
-  mark.textContent = "​";
-  mirror.append(mark);
   document.body.append(mirror);
-  const top = mark.offsetTop;
-  mirror.remove();
-  return top;
+  return mirror;
 }
 
 /** 移った箇所を約1秒示し、その後に徐々に薄くする（OSでアニメーションを減らしていれば一度に消す。CSS）。 */
@@ -917,7 +1067,331 @@ function resetWorkspace() {
   $("syntaxBanner").hidden = true;
   $("pasteHint").hidden = true;
   hideStatus();
+  closeSearch({ focus: false });
+  updateTocButton();
   setSourceVisible(true);
   updateEmptyState();
+  computeStats();
   source.focus();
+}
+
+// ---- 1.4.0: 検索と置換（§2.3） ----
+
+function bindSearch() {
+  const query = $("searchQuery");
+  const replace = $("searchReplace");
+  const changed = () => {
+    refreshMatches();
+    drawSearchHighlight();
+  };
+  query.addEventListener("input", changed);
+  $("searchCase").addEventListener("change", changed);
+  query.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.isComposing && event.keyCode !== 229) {
+      event.preventDefault();
+      findNext(event.shiftKey);
+    }
+  });
+  replace.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.isComposing && event.keyCode !== 229) {
+      event.preventDefault();
+      replaceOne();
+    }
+  });
+  $("searchBar").addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeSearch();
+    }
+  });
+  $("searchNext").addEventListener("click", () => findNext(false));
+  $("searchPrev").addEventListener("click", () => findNext(true));
+  $("replaceOne").addEventListener("click", replaceOne);
+  $("replaceAll").addEventListener("click", replaceAllMatches);
+  $("searchClose").addEventListener("click", () => closeSearch());
+  // 編集欄の大きさが変わったら、一致の枠を置き直す
+  new ResizeObserver(() => {
+    if (search.rects.length > 0) {
+      drawSearchHighlight();
+    }
+  }).observe($("sourceWrap"));
+}
+
+function openSearch() {
+  if (!workspace.classList.contains("source-open")) {
+    setSourceVisible(true);
+  }
+  const selected = source.value.slice(source.selectionStart, source.selectionEnd);
+  if (selected !== "" && !selected.includes("\n") && selected.length <= SEARCH_SELECTION_MAX) {
+    $("searchQuery").value = selected;
+  }
+  $("searchBar").hidden = false;
+  search.open = true;
+  refreshMatches();
+  $("searchQuery").focus();
+  $("searchQuery").select();
+  drawSearchHighlight();
+}
+
+/** 検索バーを閉じる。検索語・置換後・チェックは残す。focus が true なら編集欄へフォーカスを戻す（選択はそのまま）。 */
+function closeSearch({ focus = true } = {}) {
+  const wasOpen = search.open;
+  search.open = false;
+  $("searchBar").hidden = true;
+  clearSearchHighlight();
+  if (focus && wasOpen && workspace.classList.contains("source-open")) {
+    source.focus();
+  }
+}
+
+function searchOptions() {
+  return { caseSensitive: $("searchCase").checked };
+}
+
+function refreshMatches() {
+  search.matches = findMatches(source.value, $("searchQuery").value, searchOptions());
+  updateSearchCount();
+}
+
+/** 件数: 現在の一致を選んでいれば「3 / 12」、選んでいなければ「12 件」、なければ「見つかりません」。検索語が空なら出さない。 */
+function updateSearchCount() {
+  const count = $("searchCount");
+  const total = search.matches.length;
+  if ($("searchQuery").value === "") {
+    count.textContent = "";
+  } else if (total === 0) {
+    count.textContent = t("searchNone");
+  } else {
+    const index = matchIndexAt(search.matches, source.selectionStart, source.selectionEnd);
+    count.textContent = index >= 0
+      ? t("searchPosition", (index + 1).toLocaleString(), total.toLocaleString())
+      : t("searchTotal", total.toLocaleString());
+  }
+}
+
+/** 次（backward なら前）の一致を編集欄で選ぶ。フォーカスは検索バーに残し、一致は重ねた枠で示す。 */
+function findNext(backward) {
+  if ($("searchQuery").value === "") {
+    return;
+  }
+  refreshMatches();
+  const index = nextMatch(search.matches, backward ? source.selectionStart : source.selectionEnd, backward);
+  if (index < 0) {
+    return;
+  }
+  const match = search.matches[index];
+  source.setSelectionRange(match.start, match.end);
+  revealOffset(match.start);
+  updateSearchCount();
+  updateSelectionButton();
+  renderStats();
+  drawSearchHighlight();
+}
+
+/** 選択がちょうど一致なら置き換えて、次の一致を選ぶ。一致を選んでいなければ次の一致を選ぶだけ。 */
+function replaceOne() {
+  if ($("searchQuery").value === "") {
+    return;
+  }
+  const back = document.activeElement;
+  refreshMatches();
+  const index = matchIndexAt(search.matches, source.selectionStart, source.selectionEnd);
+  if (index >= 0) {
+    const match = search.matches[index];
+    const text = $("searchReplace").value;
+    const caret = match.start + text.length;
+    applySourceEdit({ start: match.start, end: match.end, insert: text, selStart: caret, selEnd: caret });
+  }
+  findNext(false);
+  restoreSearchFocus(back, $("searchReplace"));
+}
+
+/** すべての一致を置き換える。変わる範囲だけを1回で置き換えるので、1回の Undo で全部戻る。 */
+function replaceAllMatches() {
+  const query = $("searchQuery").value;
+  if (query === "") {
+    return;
+  }
+  const back = document.activeElement;
+  const before = source.value;
+  const { text, count } = replaceAllText(before, query, $("searchReplace").value, searchOptions());
+  if (count === 0) {
+    toast(t("searchNone"));
+    return;
+  }
+  const edit = minimize(before, { start: 0, end: before.length, insert: text, selStart: 0, selEnd: 0 });
+  edit.selStart = edit.start;
+  edit.selEnd = edit.start;
+  applySourceEdit(edit);
+  refreshMatches();
+  toast(t("replacedAll", count.toLocaleString()));
+  restoreSearchFocus(back, $("replaceAll"));
+}
+
+function restoreSearchFocus(previous, fallback) {
+  const target = previous && previous !== source && $("searchBar").contains(previous) ? previous : fallback;
+  target.focus();
+  drawSearchHighlight();
+}
+
+/** 編集欄の offset の行が見えていなければ、表示領域の上から1/3の高さに出す。 */
+function revealOffset(offset) {
+  if (!workspace.classList.contains("source-open")) {
+    return;
+  }
+  const top = caretTop(source, offset);
+  const lineHeight = parseFloat(getComputedStyle(source).lineHeight) || 20;
+  if (top < source.scrollTop || top + lineHeight > source.scrollTop + source.clientHeight) {
+    source.scrollTop = top - source.clientHeight / 3;
+  }
+}
+
+/** 現在の一致（選択がちょうど一致のとき）を、編集欄の上に重ねた枠で示す。編集欄にフォーカスがあれば出さない。 */
+function drawSearchHighlight() {
+  clearSearchHighlight();
+  if (!search.open || document.activeElement === source || !workspace.classList.contains("source-open")) {
+    return;
+  }
+  const index = matchIndexAt(search.matches, source.selectionStart, source.selectionEnd);
+  if (index < 0) {
+    return;
+  }
+  const { start, end } = search.matches[index];
+  search.rects = textRects(source, start, end);
+  const layer = $("searchHighlight");
+  for (const rect of search.rects) {
+    const box = document.createElement("div");
+    box.className = "search-mark";
+    box.rect = rect;
+    layer.append(box);
+  }
+  positionSearchHighlight();
+}
+
+/** 枠を編集欄のスクロールに合わせて置く（内容の中の位置 − スクロール量）。 */
+function positionSearchHighlight() {
+  for (const box of $("searchHighlight").children) {
+    const { left, top, width, height } = box.rect;
+    Object.assign(box.style, {
+      left: `${left - source.scrollLeft}px`,
+      top: `${top - source.scrollTop}px`,
+      width: `${width}px`,
+      height: `${height}px`,
+    });
+  }
+}
+
+function clearSearchHighlight() {
+  search.rects = [];
+  $("searchHighlight").replaceChildren();
+}
+
+// ---- 1.4.0: 文字数・行数・語数（§1） ----
+
+/** 全体の数を少し後に数え直す（入力のたびに長い本文を数えない）。 */
+function scheduleStats() {
+  clearTimeout(state.statsTimer);
+  state.statsTimer = setTimeout(computeStats, STATS_DELAY_MS);
+}
+
+function computeStats() {
+  clearTimeout(state.statsTimer);
+  const text = source.value;
+  // 語数は自動更新の上限（文字列の長さ）を超えると数えない（重くしないため）
+  state.stats = textStats(text, { words: text.length <= AUTO_UPDATE_LIMIT });
+  renderStats();
+}
+
+function renderStats() {
+  const { chars, lines, words } = state.stats;
+  const parts = [];
+  if (source.selectionStart !== source.selectionEnd) {
+    const selected = textStats(source.value.slice(source.selectionStart, source.selectionEnd), { words: false });
+    parts.push(t("statsSelection", selected.chars.toLocaleString(), selected.lines.toLocaleString()));
+  }
+  parts.push(t("statsText", chars.toLocaleString(), lines.toLocaleString(), words === null ? t("statsNoWords") : words.toLocaleString()));
+  $("stats").textContent = parts.join(" · ");
+}
+
+// ---- 1.4.0: 目次（§3.3） ----
+
+/** 表示中のプレビューに見出しがあるときだけ［目次▾］を出す。 */
+function updateTocButton() {
+  const visible = headingList(state.anchors, 1).length > 0;
+  $("tocWrap").hidden = !visible;
+  if (!visible) {
+    $("tocMenu").hidden = true;
+    $("tocButton").setAttribute("aria-expanded", "false");
+  }
+}
+
+/** 目次の項目を作る。反映前の編集があれば先にプレビューを更新する（手動更新では最後の一覧）。 */
+function buildTocMenu() {
+  if (state.pending && !state.manual) {
+    updatePreview();
+  }
+  const list = headingList(state.anchors);
+  const top = Math.min(...list.map((item) => item.level));
+  $("tocMenu").replaceChildren(...list.map((item) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.setAttribute("role", "menuitem");
+    button.textContent = item.text;
+    button.title = item.text;
+    button.style.paddingLeft = `calc(10px + ${item.level - top}em)`;
+    button.tocAnchor = item.anchor;
+    return button;
+  }));
+}
+
+/** 見出しへプレビューを移して示し、編集欄のカーソルもその行の先頭へ移す（フォーカスは移さない）。 */
+function jumpToHeading(anchor) {
+  const element = anchor.element;
+  if (!preview.contains(element)) {
+    return;
+  }
+  scroller.scrollTop = topInScroller(element) - TOC_TOP_MARGIN;
+  showJumpTarget(element);
+  const offset = Math.min(anchor.start, source.value.length);
+  source.setSelectionRange(offset, offset);
+  if (workspace.classList.contains("source-open")) {
+    source.scrollTop = caretTop(source, offset) - source.clientHeight / 3;
+  }
+  onSelectionChanged();
+}
+
+// ---- 1.4.0: プレビューのチェックボックス（§3.4） ----
+
+/** 押したチェックボックスの項目の原文の [ ] と [x] を切り替え、プレビューを更新する。対応しなければ何もしない。 */
+function toggleCheckbox(box) {
+  if (state.pending) {
+    // 反映前の編集があれば対応が古いので、プレビューを更新するだけにする（手動更新では何もしない）
+    if (!state.manual) {
+      updatePreview();
+    }
+    return;
+  }
+  const item = box.closest("li");
+  const anchor = item ? state.anchorByElement.get(item) : null;
+  // 本文に書いた HTML の input は、項目の中にあっても切り替えない（タスクの記号から作ったものだけ。レビュー R2）
+  if (!anchor || anchor.checkbox !== box) {
+    return;
+  }
+  const edit = toggleTaskEdit(source.value, anchor);
+  // プレビューの表示（checked 属性）と原文の状態が違えば、古い対応とみなす
+  if (!edit || edit.checked !== box.hasAttribute("checked")) {
+    return;
+  }
+  if (workspace.classList.contains("source-open")) {
+    const { selectionStart, selectionEnd, scrollTop } = source;
+    applySourceEdit({ ...edit, selStart: selectionStart, selEnd: selectionEnd });
+    source.scrollTop = scrollTop;
+  } else {
+    // 編集欄を閉じているとフォーカスを移せず execCommand が使えない（このときは Undo の履歴に積めない）
+    source.setRangeText(edit.insert, edit.start, edit.end, "preserve");
+    onSourceChanged();
+  }
+  updatePreview({ force: true });
+  const fresh = state.anchors.find((a) => a.type === "list_item" && a.start === anchor.start);
+  fresh?.checkbox?.focus({ preventScroll: true });
 }
