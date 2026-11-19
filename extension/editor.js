@@ -1307,10 +1307,23 @@ function renderStats() {
   const parts = [];
   if (source.selectionStart !== source.selectionEnd) {
     const selected = textStats(source.value.slice(source.selectionStart, source.selectionEnd), { words: false });
-    parts.push(t("statsSelection", selected.chars.toLocaleString(), selected.lines.toLocaleString()));
+    parts.push(t("statsSelection", charCount(selected.chars), lineCount(selected.lines)));
   }
-  parts.push(t("statsText", chars.toLocaleString(), lines.toLocaleString(), words === null ? t("statsNoWords") : words.toLocaleString()));
+  parts.push(t("statsText", charCount(chars), lineCount(lines), words === null ? t("statsWords", t("statsNoWords")) : wordCount(words)));
   $("stats").textContent = parts.join(" · ");
+}
+
+// 数と単位（英語は1のときだけ単数形。chrome.i18n には複数形の仕組みがないためキーを分ける）
+function charCount(n) {
+  return n === 1 ? t("statsCharsOne", n.toLocaleString()) : t("statsChars", n.toLocaleString());
+}
+
+function lineCount(n) {
+  return n === 1 ? t("statsLinesOne", n.toLocaleString()) : t("statsLines", n.toLocaleString());
+}
+
+function wordCount(n) {
+  return n === 1 ? t("statsWordsOne", n.toLocaleString()) : t("statsWords", n.toLocaleString());
 }
 
 // ---- 1.4.0: 目次（§3.3） ----

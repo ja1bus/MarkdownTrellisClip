@@ -459,10 +459,28 @@
     "message": "Replaced $1 matches"
   },
   "statsText": {
-    "message": "$1 characters · $2 lines · $3 words"
+    "message": "$1 · $2 · $3"
   },
   "statsSelection": {
-    "message": "Selection: $1 characters · $2 lines"
+    "message": "Selection: $1 · $2"
+  },
+  "statsChars": {
+    "message": "$1 characters"
+  },
+  "statsCharsOne": {
+    "message": "$1 character"
+  },
+  "statsLines": {
+    "message": "$1 lines"
+  },
+  "statsLinesOne": {
+    "message": "$1 line"
+  },
+  "statsWords": {
+    "message": "$1 words"
+  },
+  "statsWordsOne": {
+    "message": "$1 word"
   },
   "statsNoWords": {
     "message": "—"

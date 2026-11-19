@@ -1848,8 +1848,9 @@ try {
     total: (n) => (ja ? `${n} 件` : `${n} matches`),
     none: ja ? "見つかりません" : "No matches",
     replaced: (n) => (ja ? `${n} 件を置換しました` : `Replaced ${n} matches`),
-    stats: (c, l, w) => (ja ? `${c} 文字 · ${l} 行 · ${w} 語` : `${c} characters · ${l} lines · ${w} words`),
-    selection: (c, l) => (ja ? `選択 ${c} 文字 · ${l} 行` : `Selection: ${c} characters · ${l} lines`),
+    // 英語は数が1のときだけ単数形（1.4.1）
+    stats: (c, l, w) => (ja ? `${c} 文字 · ${l} 行 · ${w} 語` : `${c} character${c === 1 ? "" : "s"} · ${l} line${l === 1 ? "" : "s"} · ${w} word${w === 1 ? "" : "s"}`),
+    selection: (c, l) => (ja ? `選択 ${c} 文字 · ${l} 行` : `Selection: ${c} character${c === 1 ? "" : "s"} · ${l} line${l === 1 ? "" : "s"}`),
   };
   const KEY_CODES = { Enter: 13, Tab: 9, Escape: 27, " ": 32, Backspace: 8, ArrowDown: 40, ArrowUp: 38, Insert: 45 };
 
@@ -2247,7 +2248,7 @@ try {
   await check("1.4.0 T-20・T-21: 文字数・行数・語数の表示", async () => {
     const p = await open140();
     const stats = () => text140(p, "stats");
-    for (const [value, expected] of [["", L140.stats(0, 0, 0)], ["Hello, world 123", L140.stats(16, 1, 3)], ["a\nb\n", L140.stats(2, 3, 2)], ["a".repeat(12345), L140.stats("12,345", 1, 1)]]) {
+    for (const [value, expected] of [["", L140.stats(0, 0, 0)], ["Hello, world 123", L140.stats(16, 1, 3)], ["a\nb\n", L140.stats(2, 3, 2)], ["a".repeat(12345), L140.stats("12,345", 1, 1)], ["x", L140.stats(1, 1, 1)]]) {
       await setMarked(p, value, 300);
       assert(await stats() === expected, `${JSON.stringify(value.slice(0, 20))}: ${await stats()}`);
     }
@@ -2267,7 +2268,7 @@ try {
     await p.send("Input.insertText", { text: "a" });
     await sleep(500);
     const over = await stats();
-    assert(over.startsWith(ja ? "200,001 文字 · 1 行 · " : "200,001 characters · 1 lines · ") && over.includes("—") && !/\d\s*(語|words)/u.test(over), `20万超: ${over}`);
+    assert(over.startsWith(ja ? "200,001 文字 · 1 行 · " : "200,001 characters · 1 line · ") && over.includes("—") && !/\d\s*(語|words)/u.test(over), `20万超: ${over}`);
   });
 
   const F140 = "埋め草の段落です。".repeat(20);

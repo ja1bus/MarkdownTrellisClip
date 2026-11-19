@@ -459,10 +459,28 @@
     "message": "$1 件を置換しました"
   },
   "statsText": {
-    "message": "$1 文字 · $2 行 · $3 語"
+    "message": "$1 · $2 · $3"
   },
   "statsSelection": {
-    "message": "選択 $1 文字 · $2 行"
+    "message": "選択 $1 · $2"
+  },
+  "statsChars": {
+    "message": "$1 文字"
+  },
+  "statsCharsOne": {
+    "message": "$1 文字"
+  },
+  "statsLines": {
+    "message": "$1 行"
+  },
+  "statsLinesOne": {
+    "message": "$1 行"
+  },
+  "statsWords": {
+    "message": "$1 語"
+  },
+  "statsWordsOne": {
+    "message": "$1 語"
   },
   "statsNoWords": {
     "message": "—"
